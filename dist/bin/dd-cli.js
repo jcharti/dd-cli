@@ -491,7 +491,7 @@ function getClaudeHome() {
   return path3.join(os.homedir(), ".claude");
 }
 function getClaudeSkillsDir() {
-  return path3.join(getClaudeHome(), "skills", "devflow-ia");
+  return path3.join(getClaudeHome(), "commands", "devflow-ia");
 }
 function getProjectClaudeDir(projectRoot) {
   return path3.join(projectRoot, ".claude");

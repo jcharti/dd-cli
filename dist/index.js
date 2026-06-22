@@ -493,7 +493,10 @@ function getClaudeHome() {
   return path3.join(os.homedir(), ".claude");
 }
 function getClaudeSkillsDir() {
-  return path3.join(getClaudeHome(), "skills", "devflow-ia");
+  return path3.join(getClaudeHome(), "commands", "devflow-ia");
+}
+function getClaudeCommandsDir() {
+  return path3.join(getClaudeHome(), "commands");
 }
 function getProjectClaudeDir(projectRoot) {
   return path3.join(projectRoot, ".claude");
@@ -578,6 +581,7 @@ export {
   enforcementRuleIdsForDevType,
   evaluateRules,
   formatDoctorOutput,
+  getClaudeCommandsDir,
   getClaudeHome,
   getClaudeSkillsDir,
   getDevflowDir,

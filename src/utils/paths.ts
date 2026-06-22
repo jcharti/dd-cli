@@ -44,7 +44,13 @@ export function getClaudeHome(): string {
 }
 
 export function getClaudeSkillsDir(): string {
-  return path.join(getClaudeHome(), 'skills', 'devflow-ia');
+  // Claude Code lee slash commands desde ~/.claude/commands/
+  // El subdirectorio devflow-ia agrupa las skills del método
+  return path.join(getClaudeHome(), 'commands', 'devflow-ia');
+}
+
+export function getClaudeCommandsDir(): string {
+  return path.join(getClaudeHome(), 'commands');
 }
 
 export function getProjectClaudeDir(projectRoot: string): string {
