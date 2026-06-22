@@ -421,6 +421,7 @@ declare function getHeartbeatLogPath(projectRoot: string): string;
  */
 declare function getClaudeHome(): string;
 declare function getClaudeSkillsDir(): string;
+declare function getClaudeCommandsDir(): string;
 declare function getProjectClaudeDir(projectRoot: string): string;
 declare function getProjectClaudeSettingsPath(projectRoot: string): string;
 /**
@@ -454,4 +455,4 @@ declare function hasSession(projectRoot: string): boolean;
 
 declare const CLI_VERSION = "0.2.0";
 
-export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, CLI_VERSION, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, type EnforcementRule, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FlowState, FlowStateSchema, RULES, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type Vendor, createInitialSession, detectFlowState, enforcementRuleIdsForDevType, evaluateRules, formatDoctorOutput, getClaudeHome, getClaudeSkillsDir, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevType, loadSession, partition, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep };
+export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, CLI_VERSION, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, type EnforcementRule, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FlowState, FlowStateSchema, RULES, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type Vendor, createInitialSession, detectFlowState, enforcementRuleIdsForDevType, evaluateRules, formatDoctorOutput, getClaudeCommandsDir, getClaudeHome, getClaudeSkillsDir, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevType, loadSession, partition, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep };

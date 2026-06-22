@@ -1,31 +1,29 @@
 ---
 name: new-spec
-description: Genera un SPEC maestro técnico a partir de una entrevista guiada — ramificada por dev_type
+description: Skill maestra — orquesta análisis del repo y genera SPEC técnico ramificado por dev_type
 origin: Digital-Dev
 license: proprietary
 managed-by: "@devflow-ia/cli"
-version: 0.2.0
+version: 0.3.0
 category: Spec
-tags: [spec, interview, devflow-ia]
+tags: [spec, interview, devflow-ia, orchestrator]
 model: opus
-model_rationale: Decisiones arquitectónicas + ramificación en 5 modos (G/B/R/M/I) requieren razonamiento profundo y consistencia. LOCK del dev_type ocurre acá — si la SPEC queda mal, todo el flujo downstream va mal
+model_rationale: Orquesta sub-skills + decisiones arquitectónicas en 5 modos. LOCK del dev_type ocurre acá. Errores se propagan a todo el flujo downstream.
 fallback_model: sonnet
 applies_to_dev_types: [greenfield, brownfield-feature, brownfield-refactor, modernizacion, integracion-externa]
+orchestrates:
+  - /devflow-ia:init-repo-context  (brownfield-*/modernizacion/integracion — si falta REPO-CONTEXT)
+  - /devflow-ia:capture-baseline   (brownfield-refactor — si falta BASELINE)
 reads:
   - "CLAUDE.md"
   - ".devflow/session.json (dev_type, dev_type_locked, apps_affected, legacy_system, vendor)"
-  - ".ai/REPO-CONTEXT.md (si dev_type != greenfield)"
-  - ".ai/BASELINE-*.md (si dev_type == brownfield-refactor)"
+  - ".ai/REPO-CONTEXT.md (generado automáticamente si no existe)"
+  - ".ai/BASELINE-*.md (generado automáticamente si dev_type == brownfield-refactor)"
   - "<SPEC_PATH>/SPEC-TEMPLATE.md"
 writes:
   - "<SPEC_PATH>/SPEC-<slug>.md"
 mcp_tools:
   - devflow_save_spec (LOCK dev_type)
-enforcement_rules_evaluated:
-  - REQUIRE_REPO_CONTEXT_MD
-  - REQUIRE_BASELINE_MD
-  - REQUIRE_LEGACY_SYSTEM_FIELD
-  - REQUIRE_VENDOR_FIELD
 ---
 
 Eres un arquitecto de software experto en el método DevFlow IA. Tu objetivo es guiar al desarrollador con una entrevista estructurada y generar un SPEC maestro — la única fuente de verdad técnica para la feature.
@@ -50,19 +48,113 @@ cat .devflow/session.json 2>/dev/null
 
 ---
 
-## PASO 0.5 — Validar precondiciones por dev_type
+## PASO 0.5 — Preparación automática por dev_type
 
-Evalúa `enforcement_rules` según `dev_type`:
+**Este skill es el orquestador. No aborta — ejecuta las skills necesarias antes de continuar.**
 
-| dev_type | Precondición | Acción si falta |
-|---|---|---|
-| `greenfield` | (ninguna obligatoria) | Continuar |
-| `brownfield-feature` | `.ai/REPO-CONTEXT.md` existe | Abortar: "Ejecuta `/init-repo-context` primero" |
-| `brownfield-refactor` | `.ai/REPO-CONTEXT.md` + `.ai/BASELINE-*.md` (con `locked_at`) | Abortar con skill faltante |
-| `modernizacion` | `.ai/REPO-CONTEXT.md` + `session.legacy_system != null` | Abortar: "Falta REPO-CONTEXT o legacy_system" |
-| `integracion-externa` | `session.vendor != null` (y REPO-CONTEXT si toca app existente) | Abortar: "Falta vendor en la HDU" |
+Verificar y completar automáticamente según `dev_type`:
 
-Si alguna precondición no se cumple → **no continuar**, mostrar mensaje accionable y salir.
+### Para `brownfield-feature`, `brownfield-refactor`, `modernizacion`, `integracion-externa` (si toca app existente)
+
+```bash
+ls .ai/REPO-CONTEXT.md 2>/dev/null && echo "existe" || echo "falta"
+```
+
+**Si `.ai/REPO-CONTEXT.md` NO existe:**
+
+Anunciar al dev antes de ejecutar:
+```
+Antes de generar el SPEC, necesito entender cómo está construido este repo.
+Voy a analizar el código ahora (tarda 1-2 minutos)...
+```
+
+→ Ejecutar automáticamente: `/devflow-ia:init-repo-context`
+
+Esperar a que complete y confirmar que `.ai/REPO-CONTEXT.md` fue generado.
+Luego continuar con el PASO 1 usando ese contexto.
+
+**Si `.ai/REPO-CONTEXT.md` ya existe:**
+Leer su contenido (especialmente §2 Stack técnico, §3 Arquitectura, §4 Entry points, §5 Datos).
+Mostrar al dev un resumen de lo que se pre-cargará:
+```
+Tengo el contexto del repo (escaneado el <fecha>):
+  Stack: <stack detectado>
+  Apps/módulos: <lista>
+  Auth: <patrón detectado>
+¿Continúo con este contexto o lo actualizo primero?
+```
+
+Si el dev pide actualizar → ejecutar `/devflow-ia:init-repo-context --refresh` antes de continuar.
+
+---
+
+### Solo para `brownfield-refactor`
+
+```bash
+ls .ai/BASELINE-*.md 2>/dev/null && echo "existe" || echo "falta"
+```
+
+**Si `.ai/BASELINE-*.md` NO existe o no tiene `locked_at`:**
+
+Anunciar al dev:
+```
+Para un refactor seguro, necesito capturar el estado actual del código
+antes de tocar nada (tests, métricas, contratos públicos).
+Voy a hacer ese snapshot ahora...
+```
+
+Preguntar (única pregunta antes de ejecutar):
+```
+¿Cuál es el módulo o path principal que vas a refactorizar?
+Ej: src/modules/cobranza  o  src/services/calculo-mora.ts
+```
+
+→ Ejecutar automáticamente: `/devflow-ia:capture-baseline <modulo>`
+
+Esperar a que complete. El baseline puede tener `risk_level: high` si hay pocos tests — en ese caso mostrar el warning pero no bloquear (el tech lead lo verá en el Gate G1.5).
+
+Continuar con el PASO 1 usando el BASELINE generado.
+
+**Si `.ai/BASELINE-*.md` ya existe con `locked_at`:**
+Leer y mostrar resumen:
+```
+Tengo el baseline del módulo (capturado el <fecha>):
+  Tests: <N>  |  Coverage: <%>  |  risk_level: <nivel>
+  Contratos públicos: <N>
+¿Continúo con este baseline?
+```
+
+---
+
+### Para `modernizacion`
+
+Si `session.legacy_system` es null → preguntar:
+```
+¿Cuál es el nombre/path del sistema legacy que vas a reemplazar?
+```
+Actualizar `session.legacy_system` con la respuesta.
+
+Si `.ai/REPO-CONTEXT.md` NO existe → igual que arriba, ejecutar `/devflow-ia:init-repo-context --on=<legacy-path>` automáticamente.
+
+---
+
+### Para `integracion-externa`
+
+Si `session.vendor` es null → preguntar:
+```
+¿Con qué vendor/servicio externo se integra esta feature?
+  - Nombre del vendor: ___
+  - Versión de la API: ___
+  - URL de documentación (opcional): ___
+```
+
+Si la integración toca una app existente y no hay REPO-CONTEXT → ejecutar `/devflow-ia:init-repo-context` automáticamente.
+
+---
+
+### Para `greenfield`
+
+No hay precondiciones de análisis. Continuar directamente con PASO 1.
 
 ---
 
