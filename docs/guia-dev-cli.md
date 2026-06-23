@@ -31,15 +31,21 @@ dd-cli watch         → barra   (pane separado, opcional)
 ## 1. Instalación
 
 ```bash
-# Desde el monorepo Digital-Dev (por ahora, hasta que salga a npm público)
-cd /ruta/al/repo/Digital-Dev/_Empresa/Herramientas/devflow-ia-metodo/cli-package
-npm install
-npm link
+# Instalar desde el release público
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.3.0/devflow-ia-cli-0.3.0.tgz
 
 # Verificar
 dd-cli --version
-# → 0.2.0
+# → 0.3.0
+
+# Activar la statusline en Claude Code (una sola vez por máquina)
+dd-cli install
+# Luego reiniciar Claude Code para que cargue la barra
 ```
+
+> **¿Qué hace `dd-cli install`?**
+> Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese momento, Claude Code muestra en su barra el estado de tu sesión en cualquier proyecto. Es inteligente: si no estás en un proyecto DevFlow IA, solo muestra `DevFlow IA · v0.3.0 ready`.
+> Para desactivarla: `dd-cli uninstall`
 
 ---
 
@@ -60,13 +66,14 @@ DevFlow IA — init
 
 ✓ Detectado Claude Code en /Users/jorge/.claude
 ✓ Creado .devflow/ con session.json inicial (schema_version: 2)
-✓ Skills instaladas en /Users/jorge/.claude/skills/devflow-ia
-  19 skills (v0.2.0)
-✓ Hooks + statusLine configurados en .claude/settings.json
+✓ Skills instaladas en ~/.claude/commands/devflow-ia
+  20 skills (v0.3.0)
+✓ Hooks configurados en .claude/settings.json
 ✓ CLAUDE.md generado con auto-onboarding
   Edita las variables {{...}} con los datos del proyecto
 
 Listo. Abre Claude Code en este directorio.
+Tip: para ver la statusline en Claude Code → ejecuta una sola vez: dd-cli install
 ```
 
 Después de esto, edita `CLAUDE.md` en la raíz del proyecto y reemplaza las variables:
@@ -208,9 +215,21 @@ Tu siguiente paso es: /new-spec
 
 ---
 
+### `dd-cli flow` — ver el mapa del método
+
+Antes de arrancar una sesión o si te pierdes en el camino:
+
+```bash
+dd-cli flow --all                         # resumen de los 5 tipos
+dd-cli flow --type=brownfield-feature     # detalle completo del tipo
+dd-cli flow                               # tipo de la sesión activa
+```
+
+---
+
 ### La statusline en Claude Code
 
-Una vez que hiciste `dd-cli init`, **Claude Code muestra tu progreso automáticamente** en la barra inferior, sin que hagas nada:
+Una vez que hiciste `dd-cli install`, **Claude Code muestra tu progreso automáticamente** en la barra inferior:
 
 ```
 HDU-128 · paso 3/8: /new-spec → /derive-spec · 42m  ⬢ brownfield-feature
@@ -441,7 +460,7 @@ dd-cli doctor --for=brownfield-refactor
 
 ---
 
-## 9. Gestión de skills
+## 9. Gestión de skills (avanzado)
 
 Las 19 skills son las herramientas que Claude usa dentro de tu sesión. No las modificas directamente — el CLI las gestiona.
 
@@ -487,25 +506,53 @@ dd-cli skills install
 
 ---
 
-## 10. Referencia rápida de comandos
+## 10. Crear una HDU desde el CLI (sin la APP)
 
-| Comando | Para qué | Frecuencia |
-|---|---|---|
-| `dd-cli init` | Setup inicial del proyecto | Una vez |
-| `dd-cli start-session <id>` | Empezar a trabajar | Cada día |
-| `dd-cli status` | Ver dónde estás | Cuando dudes |
-| `dd-cli next` | ¿Qué tipeo ahora? | Cuando dudes |
-| `dd-cli help-ctx` | Comandos útiles para tu estado actual | Cuando dudes |
-| `dd-cli end-session` | Cerrar la sesión | Rara vez (lo hace la skill) |
-| `dd-cli watch` | Barra de estado en otro pane | Opcional, demos |
-| `dd-cli doctor` | Algo no funciona | Cuando hay problemas |
-| `dd-cli skills list` | Ver skills instaladas | Cuando sea curiosidad |
-| `dd-cli skills verify` | Verificar integridad | Cuando haya dudas |
-| `dd-cli reclassify` | Cambiar tipo de desarrollo | Muy rara vez |
+Si no tienes acceso a la APP de DevFlow IA, puedes crear HDUs directamente desde el CLI:
+
+```bash
+dd-cli new-hdu "Autenticación SSO portal cliente"
+# → Crea docs/hdus/HDU-001-autenticacion-sso-portal-cliente.md desde el template
+# → Lanza Claude Code con /devflow-ia:design-hdu para refinarla
+```
+
+El archivo creado tiene el frontmatter completo y el esqueleto estructurado. Claude lo completa junto contigo (Como / Quiero / Para / Criterios / Clasificación).
+
+```bash
+dd-cli new-hdu "Mi feature" --no-claude   # crea el archivo sin lanzar Claude
+dd-cli new-feature "Mi feature"           # alias más corto
+```
+
+Una vez que la HDU está aprobada:
+```bash
+dd-cli start-session HDU-001
+```
 
 ---
 
-## 11. Preguntas frecuentes
+## 11. Referencia rápida de comandos
+
+| Comando | Para qué | Frecuencia |
+|---|---|---|
+| `dd-cli install` | Activar statusline global en Claude Code | Una vez por máquina |
+| `dd-cli init` | Setup inicial del proyecto | Una vez por proyecto |
+| `dd-cli flow [--type=X]` | Ver el mapa del método | Cuando quieras orientarte |
+| `dd-cli new-hdu "<título>"` | Crear HDU + lanzar Claude | Cada nueva feature |
+| `dd-cli start-session <id>` | Iniciar sesión sobre una HDU | Cada sesión de trabajo |
+| `dd-cli status` | Ver dónde estás en el flujo | Cuando dudes |
+| `dd-cli next` | ¿Qué tipeo ahora? | Cuando dudes |
+| `dd-cli help-ctx` | Comandos útiles según tu estado | Cuando dudes |
+| `dd-cli end-session` | Cerrar sesión | Rara vez (lo hace la skill) |
+| `dd-cli watch` | Barra detallada en otro pane | Opcional, demos |
+| `dd-cli doctor` | Diagnóstico cuando algo no funciona | Cuando hay problemas |
+| `dd-cli skills list` | Ver skills instaladas | Ocasional |
+| `dd-cli skills verify` | Verificar integridad de skills | Ocasional |
+| `dd-cli reclassify` | Cambiar tipo de desarrollo | Muy rara vez |
+| `dd-cli uninstall` | Desactivar statusline global | Cuando sea necesario |
+
+---
+
+## 12. Preguntas frecuentes
 
 **¿Tengo que recordar todos los comandos?**
 No. `dd-cli next` te dice exactamente qué hacer. `dd-cli help-ctx` te muestra solo los comandos relevantes para tu situación actual.
