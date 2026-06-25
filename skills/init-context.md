@@ -1,10 +1,11 @@
 ---
 name: init-context
-description: Onboarding de cliente a DevFlow IA — discovery automático via API + confirmación mínima
+description: Onboarding de cliente a DevFlow IA — discovery automático via dd-cli + confirmación mínima
 origin: Digital-Dev
 license: proprietary
 managed-by: "@devflow-ia/cli"
-version: 0.5.0
+version: 0.6.0
+cli_version_required: ">=0.6.0"
 category: Onboarding
 model: opus
 model_rationale: Interpretar patrones de arquitectura detectados, inferir decisiones técnicas del cliente y generar artefactos coherentes requiere razonamiento profundo. Errores en el contexto del cliente impactan todo el flujo.
@@ -13,11 +14,13 @@ applies_to_dev_types: [greenfield, brownfield-feature, brownfield-refactor, mode
 reads:
   - "~/.devflow/credentials.yml (API token del cliente)"
   - "~/.devflow/registry.yml (git_group, git_host del cliente)"
+  - "~/.devflow/clients/<slug>.discovery.json (generado por dd-cli client discover)"
 writes:
   - "<cliente>-devflow-context/CLAUDE.md"
   - "<cliente>-devflow-context/README.md"
-  - "<cliente>-devflow-context/.devflow/config.yml"
-  - "<cliente>-devflow-context/.devflow-context/app-catalog.md"
+  - "<cliente>-devflow-context/.devflow-context/stack.yml (S1-1)"
+  - "<cliente>-devflow-context/.devflow-context/catalog.yml (S1-2 — fuente canónica)"
+  - "<cliente>-devflow-context/.devflow-context/app-catalog.md (vista derivada — regenerable con dd-cli context render)"
   - "<cliente>-devflow-context/.devflow-context/client-assessment.md"
   - "<cliente>-devflow-context/.devflow-context/auth-profiles/<slug>.md"
   - "<cliente>-devflow-context/.devflow-context/cicd-profiles/<slug>.yml"
@@ -82,97 +85,108 @@ Si no tienes token disponible ahora, podemos hacer el onboarding manual.
 
 ---
 
-## PASO 1 — Enumerar repos via API
+## PASO 1 — Discovery automático (delegado al CLI)
 
-Usando las credenciales registradas, enumerar todos los repos del grupo del cliente.
+**A partir de v0.6.0 (S2-1 del rediseño), el análisis NO se hace con curl en la skill.**
+Se delega a `dd-cli client discover`, que invoca el motor TypeScript en `src/discovery/`,
+trabaja sin LLM y emite JSON estructurado en ~15 segundos para un cliente de 17 repos.
 
-```
-Analizando repos del cliente...
-Conectando a <git_host> / <git_group>...
+Ejecutar en la terminal del usuario (no en una bash invocada por la skill — el
+usuario debe ver el progreso):
+
+```bash
+dd-cli client discover <slug>
 ```
 
-Ejecutar internamente: obtener la lista de repos via API con metadata (nombre, lenguaje detectado, último push, tamaño, tags).
+Esperar a que termine. El comando:
+- Valida el token (scope `read`).
+- Lista repos del group/org via GitProvider (S1-8 — gitlab o github).
+- Para cada repo activo: lee archivos clave (package.json, composer.json,
+  pom.xml, requirements.txt, .gitlab-ci.yml, etc) con concurrencia limitada.
+- Analiza stack, auth pattern, ci stages, k8s namespace, app type.
+- Sintetiza patrones (auth profiles, templates, portal shell, MFEs, DBs).
+- Guarda el resultado completo en `~/.devflow/clients/<slug>.discovery.json`.
+- Avanza el state.json del cliente a `DISCOVERED`.
 
-Mostrar resumen rápido:
-```
-Encontré <N> repos en <git_group>:
-  Activos (push < 12 meses): <N>
-  Sin actividad: <N>
-  
-¿Hay repos en otros grupos o en otra plataforma que debería incluir?
-(Si no, responde "no" y continúa con el análisis)
-```
+Si el discovery falla, el comando emite código de error estable + recovery hints
+(D-7/D-8 Parte 3). Casos comunes:
+- `TOKEN_INVALID` o `TOKEN_INSUFFICIENT_SCOPE` → regenerar PAT con scope correcto.
+- `CLIENT_NOT_REGISTERED` → correr `dd-cli register-client` primero.
+- `NETWORK_ERROR` → conectividad.
+
+**Mostrar al usuario el resumen humano que el comando devuelve** + un párrafo
+breve interpretando los hallazgos en lenguaje natural (qué tipo de cliente
+parece — monolito, microservicios, frontend MFE-based, etc).
 
 ---
 
-## PASO 2 — Análisis liviano de cada repo (via API, sin clonar)
+## PASO 2 — Cargar el JSON de discovery
 
-Para cada repo activo, leer estos archivos via API (sin clonar):
+Leer directamente el archivo (NO repetir el discovery):
 
-```
-package.json | composer.json | pom.xml | requirements.txt
-→ Stack exacto, framework, dependencias auth, dependencias DB
-
-.gitlab-ci.yml | .github/workflows/*.yml
-→ Stages del pipeline, namespace K8s, registry de imágenes
-
-Dockerfile | docker-compose.yml
-→ Puerto expuesto, imagen base
-
-Detectar en nombres de archivos/directorios:
-  auth.guard.ts | jwt.strategy.ts | keycloak.json | passport.config.*
-  → Patrón de auth
-  
-  app.module.ts con "registerApplication" | angular.json con "projects"
-  → Microfrontend vs app standalone
-  
-  "shell" | "portal" en el nombre del repo
-  → Portal principal
+```bash
+cat ~/.devflow/clients/<slug>.discovery.json
 ```
 
-Mientras analiza, mostrar progreso:
+El JSON tiene esta estructura (estable, ver `pattern-detector.ts:DiscoveryResult`):
+
+```json
+{
+  "slug": "<slug>",
+  "provider": "gitlab" | "github",
+  "group_or_org": "<grupo>",
+  "generated_at": "<ISO>",
+  "discovery": {
+    "repos": [
+      {
+        "slug": "...", "display_name": "...",
+        "stack": { "language", "framework", "db", "node_version", "php_version" },
+        "app_type": "bff|microservice|api-rest|frontend-app|frontend-mfe|worker|library",
+        "auth_pattern": "custom-jwt|portal-embedded|oauth2-oidc|api-key-internal|none-public|unknown",
+        "is_template": bool, "is_portal_shell": bool, "is_mfe": bool,
+        "ci_stages": [...], "k8s_namespace": ...,
+        "last_active_days": N, "inactive": bool
+      }
+    ],
+    "auth_profiles_detected": [...],
+    "templates_detected": [...],
+    "portal_shell": "<slug>|null",
+    "mfes": [...],
+    "ci_template": "...",
+    "dbs_detected": [...],
+    "active_repos": N,
+    "inactive_repos": N,
+    "summary": "<párrafo legible>"
+  },
+  "saved_to": "..."
+}
 ```
-Analizando repos...
-  ✓ iprsa-bff-reservas      → NestJS + PostgreSQL · JWT · CI: lint→test→docker→deploy
-  ✓ iprsa-portal-clientes   → Angular · portal-embedded · CI: lint→build→deploy
-  ✓ iprsa-ms-notificaciones → NestJS · api-key-internal · CI: completo
-  ✓ iprsa-worker-emails     → NestJS · worker · CI: básico
-  ⏩ iprsa-docs             → sin actividad en 18 meses, omitiendo
-  ...
-```
+
+Razonar sobre estos datos para los PASOS 3-5. NO inventar; si un campo viene
+`unknown` o `null`, marcar `[por confirmar]` en el output y preguntarlo en PASO 4.
 
 ---
 
-## PASO 3 — Síntesis de patterns detectados
+## PASO 3 — Refinamiento desde el JSON
 
-Sintetizar automáticamente:
+A partir del JSON cargado, sintetizar para presentar al consultor:
 
-**Apps detectadas por tipo:**
-```
-BFF: iprsa-bff-reservas, iprsa-bff-admin
-Frontends app: iprsa-portal-clientes
-Microfrontends: iprsa-mfe-dashboard, iprsa-mfe-reservas
-Microservices: iprsa-ms-notificaciones, iprsa-ms-pagos
-Workers: iprsa-worker-emails, iprsa-worker-reportes
-```
+**Apps por tipo:** agrupar `discovery.repos[].app_type`.
 
-**Auth patterns detectados:**
-```
-portal-embedded: iprsa-portal-clientes + todos los MFEs (token del portal)
-custom-jwt: BFFs y microservices (JWT propio)
-api-key-internal: workers (comunicación interna)
-```
+**Auth patterns:** ya están en `discovery.auth_profiles_detected`. Para cada uno,
+listar qué repos lo usan (filtrando `repos[].auth_pattern`).
 
-**Templates detectados:**
-```
-iprsa-template-base aparece como dependencia → es el template base
-```
+**Templates:** `discovery.templates_detected` — repos cuyo nombre matchea
+template/base/starter/scaffold. Confirmar con el consultor si son realmente
+templates oficiales o falsos positivos.
 
-**CI/CD pattern:**
-```
-12/14 repos tienen el mismo pattern: lint → test → docker → deploy-qa → deploy-prod
-2 repos sin CI configurado: iprsa-legacy-x, iprsa-poc-y
-```
+**Portal shell + MFEs:** `discovery.portal_shell` + `discovery.mfes`.
+
+**CI/CD pattern:** `discovery.ci_template` es el stage pattern más común. Listar
+repos sin CI (los que tienen `ci_stages: []`).
+
+**Repos inactivos:** `discovery.repos[].inactive === true` — proponer marcarlos
+como `deprecated` en el catálogo o pedir confirmación.
 
 ---
 
@@ -206,75 +220,140 @@ Esperar respuestas. Ajustar el draft según las respuestas.
 
 ## PASO 5 — Generar artefactos
 
-Con todo el contexto recopilado, generar los archivos del repo:
+Con todo el contexto recopilado, generar los archivos del context repo.
 
-### `CLAUDE.md` raíz
+> **A partir de v0.6.0:** el master config canónico vive en
+> `.devflow-context/stack.yml` (S1-1) y el catálogo en
+> `.devflow-context/catalog.yml` (S1-2). El markdown legacy
+> `app-catalog.md` se regenera como vista derivada con
+> `dd-cli context render` (S2-5).
 
-Contexto completo del cliente para Claude Code. Incluir:
-- Datos del cliente (nombre, industria, equipo)
-- Stack core detectado y confirmado
-- Resumen del catálogo de apps (con enlace al app-catalog.md)
-- Auth profiles disponibles y qué apps los usan
-- Instrucciones de uso del repo
-- Configuración DevFlow IA
+### `.devflow-context/stack.yml` (NUEVO, canónico — S1-1)
 
-### `.devflow-context/app-catalog.md`
+Master config con schema versionado. Estructura:
 
-Usar el template `templates/cliente-context/app-catalog.md.template`.
+```yaml
+schema_version: '1.0'
+client:
+  slug: <slug>
+  name: <Nombre completo>
+  industry: <industria o null>
+  team_size: <N o null>
+  primary_contact: "<nombre — rol>"
+stack:
+  backend_framework: "<framework + versión>"
+  frontend_framework: "<framework + versión>"
+  databases: [<lista>]
+  infra: "Kubernetes" | "ECS" | "VMs" | ...
+  k8s_namespaces: { qa: <ns>, prod: <ns> }
+  cicd_platform: "GitLab CI" | "GitHub Actions" | ...
+  identity_provider: <slug del provider de auth>
+  container_registry: <url o null>
+  base_domain: <dominio o null>
+naming:
+  feature_id_pattern: "HDU-{n}"
+  branch_pattern: "feature/{feature_id}-{slug}"
+  spec_filename: "SPEC-{slug}.md"
+  epic_filename: "EPIC-{slug}.md"
+defaults:
+  acceptance_format: gherkin
+  story_format: como-quiero-para
+  sprint_duration_weeks: 2
+  main_branch: main
+  qa_branch: develop
+templates:
+  fullstack: <slug del template fullstack o null>
+  api: <slug del template api o null>
+devflow:
+  mode: local
+  url: null
+```
 
-Incluir todas las apps detectadas (activas e inactivas/deprecadas marcadas).
-Columnas: slug, tipo, app_origin, auth-profile, repo, ci_cd, estado, preferred_dev_types.
+### `.devflow-context/catalog.yml` (NUEVO, canónico — S1-2)
 
-**`app_origin`:** todas las apps existentes son `legacy-app`.
-Solo serán `greenfield-app` las nuevas que creemos con `/new-app`.
+Catálogo de apps como YAML estructurado. Una entrada por app:
 
-**`preferred_dev_types`:** derivar según `app_origin` y tipo:
-- `legacy-app` → brownfield-feature, brownfield-refactor
-- Si es portal/shell con MFEs → agregar modernizacion si corresponde
+```yaml
+schema_version: '1.0'
+apps:
+  - slug: <kebab-case>
+    name: <Nombre humano>
+    type: microservice|bff|api-rest|frontend-app|frontend-mfe|worker|library
+    role: provider|consumer|portal|standalone|data-layer|integration|unknown
+    auth_profile: <slug del auth profile, ej: iprsa-sso>
+    ci_cd_profile: <slug del cicd profile o null si no aplica>
+    repo: <URL HTTPS al repo>
+    branch: main
+    status: prod|qa|dev|deprecated|inactive|empty|unknown
+    app_origin: legacy-app  # siempre legacy en init-context — solo /new-app crea greenfield
+    template_origin: <slug del template o null>
+    preferred_dev_types:
+      - brownfield-feature
+      - brownfield-refactor
+    tags: [...]
+    notes: <prosa libre o null>
+```
+
+**Llenar a partir del JSON de discovery** mapeando:
+- `repos[].slug` → `apps[].slug`
+- `repos[].display_name` → `apps[].name`
+- `repos[].app_type` → `apps[].type`
+- `repos[].auth_pattern` → derivar `auth_profile` (un mismo pattern
+  detectado puede usar el mismo profile en múltiples apps)
+- `repos[].is_template` → `app_origin: legacy-app` y tag `template`
+- `repos[].inactive` → `status: deprecated` o `inactive` (preguntar)
+
+Después de generar el YAML, ejecutar:
+```bash
+dd-cli context render <path-al-context-repo>
+```
+para generar `app-catalog.md` como vista derivada (consumible por humanos
+en GitLab/GitHub UI).
 
 ### `.devflow-context/auth-profiles/<slug>.md`
 
-Por cada patrón único detectado y confirmado.
-Copiar el perfil base de `artifacts/auth-profiles/<slug>.md` y personalizar con los datos reales del cliente (endpoint_login, algoritmo, claim_user_id, etc.).
+Por cada `auth_profile` único usado en el catalog. Personalizar con los datos
+reales del cliente (endpoint_login, algoritmo, claim_user_id, etc.).
+Si hay datos confirmados en PASO 4 → incluirlos. Si no → `[por confirmar]`.
 
-Si hay datos específicos confirmados en PASO 4 → incluirlos.
-Si no → dejar `[por confirmar]` en los campos faltantes.
+### `.devflow-context/cicd-profiles/<slug>-k8s.yml`
 
-### `.devflow-context/cicd-profiles/<stack>-k8s.yml`
-
-Por cada variante de pipeline identificada.
-
-Si el 80% de los repos activos tienen el mismo pattern de CI/CD:
-→ Generar un único profile como "estándar del cliente".
-
-Si hay variantes → generar una por variante (máx 3).
-
-```yaml
-# cicd-profiles/<stack>-k8s.yml
-# Pipeline estándar para <stack> en <cliente>
-# Detectado en <N>/<total> repos activos
-
-stages:
-  - <stage 1>
-  - <stage 2>
-  - ...
-
-# Variables requeridas en CI Settings:
-# REGISTRY_URL, K8S_CONFIG_QA, K8S_CONFIG_PROD, APP_NAMESPACE
-```
+Por cada variante de pipeline identificada (`discovery.ci_template` indica el
+stage pattern más común). Si el 80% de los repos activos tienen el mismo
+pattern → un único profile. Si hay variantes → una por variante (máx 3).
 
 ### `.devflow-context/client-assessment.md`
 
-Documentar gaps identificados automáticamente:
-- Repos sin CI/CD
-- Apps con auth patterns no estándar o no reconocidos
-- Apps sin health check
-- Repos inactivos que podrían deprecarse formalmente
-- Gaps de infra detectados (sin observability mencionada, etc.)
+Documentar gaps identificados desde el JSON:
+- Repos en `discovery.repos[]` con `ci_stages: []` → sin CI/CD configurado.
+- Apps con `auth_pattern: unknown` → patrón de auth no reconocido.
+- Repos con `inactive: true` → candidatos a deprecar formalmente.
+- Apps que faltan campos en el catalog (`auth_profile` null, etc.).
 
-### `.devflow/config.yml`
+### `CLAUDE.md` raíz
 
-Config maestro del cliente con todos los defaults.
+Contexto completo del cliente para Claude Code. Incluir referencias a
+`stack.yml`, `catalog.yml`, summary del discovery.
+
+### `.devflow-context/.context-repo.yml` (NUEVO marcador — S2-3)
+
+```yaml
+kind: context-repo
+schema_version: '1.1'
+client:
+  slug: <slug>
+  name: <nombre>
+provider:
+  type: gitlab | github
+  base_url: <base url>
+  group_or_org: <grupo>
+generated_by: /devflow-ia:init-context
+last_generated_at: <ISO timestamp>
+cli_version: <obtener de `dd-cli --version`>
+discovery_source:
+  type: provider-api
+  ref: HEAD
+```
 
 ### `README.md` y `.gitignore`
 
@@ -282,37 +361,54 @@ Guía de uso del repo de contexto y exclusiones estándar.
 
 ---
 
-## PASO 6 — Commit inicial + sync de la cache local
+## PASO 6 — Validar localmente + commit + sync
+
+**Antes de pushear**, ejecutar el linter del context repo:
+
+```bash
+dd-cli context validate <path-al-context-repo>
+```
+
+Debe terminar con `0 errores`. Las warnings son aceptables y se resuelven
+después (auth profiles `[por confirmar]`, etc). Si hay errores estructurales
+(schema inválido, refs rotas), corregir antes de pushear.
+
+Si el `app-catalog.md` no se regeneró aún, hacerlo:
+
+```bash
+dd-cli context render <path-al-context-repo>
+```
+
+Commit + push:
 
 ```bash
 git add .
 git commit -m "feat: devflow context — onboarding <slug>
 
-Discovery automático via API <git_host>/<git_group>.
+Discovery automático via dd-cli client discover (S2-1).
+JSON fuente: ~/.devflow/clients/<slug>.discovery.json
 
 Apps catalogadas: <N> (<N_activas> activas, <N_inactivas> inactivas)
 Auth profiles: <N> (<lista>)
 CI/CD profiles: <N>
 Gaps identificados: <N>
 
-Generado por /devflow-ia:init-context"
+Generado por /devflow-ia:init-context v0.6.0"
 
 git push origin main
 ```
 
-**B-6 fix — cerrar el loop:** después del push, sincronizar la cache local del CLI para que `dd-cli health` y futuras invocaciones reflejen lo que se acaba de publicar.
+**B-6 fix — cerrar el loop:** después del push, sincronizar la cache local
+del CLI para que `dd-cli health` y futuras invocaciones reflejen lo que se
+acaba de publicar.
 
 ```bash
 dd-cli pull-context <slug>
-```
-
-Validar que la cache quedó al día:
-
-```bash
 dd-cli health --client=<slug>
 ```
 
-Debe reportar `app catalog: <N> apps catalogadas` con el número que acabamos de generar. Si reporta 0 o un número viejo, hay un problema de sync — revisar permisos del token y volver a correr `pull-context`.
+Debe reportar `app catalog: <N> apps catalogadas`. Si reporta 0 o número
+viejo, revisar permisos del token y volver a correr `pull-context`.
 
 ---
 
@@ -324,12 +420,15 @@ Debe reportar `app catalog: <N> apps catalogadas` con el número que acabamos de
 Archivos creados:
   ✓ CLAUDE.md
   ✓ README.md
-  ✓ .devflow/config.yml
-  ✓ .devflow-context/app-catalog.md   (<N> apps)
-  ✓ .devflow-context/client-assessment.md  (<N> gaps)
-  ✓ .devflow-context/auth-profiles/   (<N> perfiles)
-  ✓ .devflow-context/cicd-profiles/   (<N> perfiles)
+  ✓ .devflow-context/.context-repo.yml      (marcador S2-3)
+  ✓ .devflow-context/stack.yml              (master config S1-1)
+  ✓ .devflow-context/catalog.yml            (catálogo canónico S1-2 — <N> apps)
+  ✓ .devflow-context/app-catalog.md         (vista derivada, regenerable)
+  ✓ .devflow-context/client-assessment.md   (<N> gaps)
+  ✓ .devflow-context/auth-profiles/         (<N> perfiles)
+  ✓ .devflow-context/cicd-profiles/         (<N> perfiles)
 
+✓ context validate ejecutado → 0 errores
 ✓ Cache local sincronizada (dd-cli pull-context <slug>)
 ✓ Health check verde (dd-cli health --client=<slug>)
 
@@ -338,8 +437,10 @@ Gaps que vale revisar con el Jefe TI:
 
 Próximos pasos:
   1. Revisar y completar los [por confirmar] en auth-profiles/
+     (después de cada edición: dd-cli context render para refrescar
+      el app-catalog.md derivado, dd-cli context validate para checkear)
   2. Cuando el primer dev arranque con una feature:
-       cd <repo-del-cliente>
+       cd <repo-de-código>
        dd-cli init --client=<slug>
        dd-cli start-session <HDU-id>
 ```
