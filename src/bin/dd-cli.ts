@@ -23,6 +23,7 @@ import { runInstall, runUninstall } from '../commands/install-cmd.js';
 import { runFlow } from '../commands/flow-cmd.js';
 import { runNewHdu } from '../commands/new-hdu-cmd.js';
 import { runHealth } from '../commands/health-cmd.js';
+import { runClientMigrate } from '../commands/client-migrate.js';
 
 const program = new Command();
 
@@ -146,6 +147,25 @@ program
         gitBaseUrl: opts.gitBaseUrl,
       }));
     }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+// Comando estructurado `client` — Sprint 3 lo extiende con new/show/list/etc.
+// Acá sólo agregamos `migrate` (S1-10) — los demás llegan en Sprint 3.
+const clientCmd = program
+  .command('client')
+  .description('Gestión de clientes registrados (Sprint 3 agregará new/show/list/...)');
+
+clientCmd
+  .command('migrate <slug>')
+  .description('Migra un cliente legacy al schema nuevo (stack.yml + catalog.yml).')
+  .option('--apply', 'Aplica los cambios. Sin esto, dry-run.', false)
+  .option('--no-push', 'No pushear al context repo, solo commit local.')
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (slug: string, opts: { apply?: boolean; push?: boolean; json?: boolean }) => {
+    // commander: `.option('--no-push')` setea opts.push = false cuando se usa --no-push
+    const noPush = opts.push === false;
+    try { process.exit(await runClientMigrate(slug, { apply: opts.apply, noPush, json: opts.json })); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

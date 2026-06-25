@@ -905,6 +905,26 @@ var StackConfigSchema = z4.object({
   templates: StackTemplatesSchema.default({}),
   devflow: StackDevflowSchema.default({})
 });
+var STACK_DIR = ".devflow-context";
+var STACK_FILENAME = "stack.yml";
+function getStackConfigPath(contextRepoRoot) {
+  return path6.join(contextRepoRoot, STACK_DIR, STACK_FILENAME);
+}
+function hasStackConfig(contextRepoRoot) {
+  return existsSync7(getStackConfigPath(contextRepoRoot));
+}
+function saveStackConfig(contextRepoRoot, config) {
+  const stackDir = path6.join(contextRepoRoot, STACK_DIR);
+  if (!existsSync7(stackDir)) mkdirSync4(stackDir, { recursive: true });
+  const validated = StackConfigSchema.parse(config);
+  const yamlStr = yaml2.dump(validated, { indent: 2, lineWidth: 120 });
+  writeFileSync4(getStackConfigPath(contextRepoRoot), yamlStr, "utf-8");
+}
+function looksLikeLegacyMasterConfig(parsed) {
+  if (!parsed || typeof parsed !== "object") return false;
+  const obj = parsed;
+  return "stack" in obj || "project" in obj || "naming" in obj || "templates" in obj;
+}
 
 // src/types/catalog.ts
 import { z as z6 } from "zod";
@@ -1046,6 +1066,13 @@ ${result.error.message}`);
     return CatalogSchema.parse({ apps });
   }
   return null;
+}
+function saveCatalog(contextRepoRoot, catalog) {
+  const dir = path8.join(contextRepoRoot, CATALOG_DIR);
+  if (!existsSync9(dir)) mkdirSync6(dir, { recursive: true });
+  const validated = CatalogSchema.parse(catalog);
+  const yamlStr = yaml4.dump(validated, { indent: 2, lineWidth: 120 });
+  writeFileSync6(getCatalogYamlPath(contextRepoRoot), yamlStr, "utf-8");
 }
 function parseMarkdownCatalog(content) {
   const stripBackticks = (s) => s.replace(/^`+/, "").replace(/`+$/, "").trim();
@@ -2845,8 +2872,8 @@ function syncCache(slug, contextUrl) {
   const cacheDir = getClientCacheDir(slug);
   try {
     if (!existsSync17(cacheDir)) {
-      const { mkdirSync: mkdirSync13 } = __require("fs");
-      mkdirSync13(path16.dirname(cacheDir), { recursive: true });
+      const { mkdirSync: mkdirSync14 } = __require("fs");
+      mkdirSync14(path16.dirname(cacheDir), { recursive: true });
       execSync2(`git clone "${contextUrl}" "${cacheDir}"`, { stdio: "pipe" });
     } else {
       execSync2("git pull", { cwd: cacheDir, stdio: "pipe" });
@@ -4067,6 +4094,279 @@ async function runHealth(opts = {}) {
   return hasIssues ? 1 : 0;
 }
 
+// src/commands/client-migrate.ts
+import { execSync as execSync5 } from "child_process";
+import { existsSync as existsSync25, readFileSync as readFileSync18, cpSync } from "fs";
+import * as path23 from "path";
+import * as yaml7 from "js-yaml";
+function runGit3(cmd, cwd) {
+  return execSync5(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+}
+function buildStackFromLegacyMaster(slug, legacy) {
+  const legacyStack = legacy["stack"] ?? {};
+  const legacyClient = legacy["client"] ?? legacy["project"] ?? {};
+  const s = (obj, key, fallback = "") => {
+    const v = obj[key];
+    return typeof v === "string" ? v : fallback;
+  };
+  const n = (obj, key) => {
+    const v = obj[key];
+    return typeof v === "number" ? v : null;
+  };
+  const databases = Array.isArray(legacyStack["databases"]) ? legacyStack["databases"] : s(legacyStack, "database") ? [s(legacyStack, "database")] : ["[por-confirmar]"];
+  const clientSlug = s(legacyClient, "client_slug") || s(legacyClient, "slug") || slug;
+  const clientName = s(legacyClient, "client_name") || s(legacyClient, "name") || slug;
+  const industry = s(legacyClient, "industry");
+  const teamSize = n(legacyClient, "team_size");
+  const primaryContact = s(legacyClient, "primary_contact");
+  return {
+    schema_version: "1.0",
+    client: {
+      slug: clientSlug,
+      name: clientName,
+      industry: industry || null,
+      team_size: teamSize,
+      primary_contact: primaryContact || null
+    },
+    stack: {
+      backend_framework: s(legacyStack, "backend_framework", "[por-confirmar]"),
+      frontend_framework: s(legacyStack, "frontend_framework", "[por-confirmar]"),
+      databases,
+      infra: s(legacyStack, "infra", "[por-confirmar]"),
+      k8s_namespaces: legacyStack["k8s_namespaces"] ?? void 0,
+      cicd_platform: s(legacyStack, "cicd_platform", s(legacyStack, "ci_cd_platform", "[por-confirmar]")),
+      identity_provider: s(legacyStack, "identity_provider") || null,
+      container_registry: s(legacyStack, "container_registry") || null,
+      base_domain: s(legacyStack, "base_domain") || null
+    },
+    naming: legacy["naming"] ?? {},
+    defaults: legacy["defaults"] ?? {},
+    templates: legacy["templates"] ?? {},
+    devflow: legacy["devflow"] ?? {}
+  };
+}
+function planMigration(cacheDir, slug) {
+  const steps = [];
+  const legacyMasterPath = path23.join(cacheDir, ".devflow", "config.yml");
+  const stackYmlExists = hasStackConfig(cacheDir);
+  if (!stackYmlExists && existsSync25(legacyMasterPath)) {
+    try {
+      const raw = readFileSync18(legacyMasterPath, "utf-8");
+      const parsed = yaml7.load(raw);
+      if (looksLikeLegacyMasterConfig(parsed)) {
+        const next = buildStackFromLegacyMaster(slug, parsed);
+        StackConfigSchema.parse(next);
+        steps.push({
+          type: "create-stack-yml-from-legacy-config",
+          description: "Generar .devflow-context/stack.yml desde .devflow/config.yml (legacy master)",
+          from: ".devflow/config.yml",
+          to: ".devflow-context/stack.yml"
+        });
+      }
+    } catch (e) {
+      steps.push({
+        type: "noop-nothing-to-migrate",
+        description: `No se pudo derivar stack.yml desde .devflow/config.yml: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`
+      });
+    }
+  }
+  const catalogYmlExists = existsSync25(getCatalogYamlPath(cacheDir));
+  const catalogMdExists = existsSync25(getCatalogMarkdownPath(cacheDir));
+  if (!catalogYmlExists && catalogMdExists) {
+    try {
+      const catalog = loadCatalog(cacheDir);
+      const validated = CatalogSchema.parse(catalog ?? { apps: [] });
+      steps.push({
+        type: "create-catalog-yml-from-markdown",
+        description: `Generar .devflow-context/catalog.yml desde app-catalog.md (${validated.apps.length} apps)`,
+        from: ".devflow-context/app-catalog.md",
+        to: ".devflow-context/catalog.yml",
+        details: { app_count: validated.apps.length }
+      });
+    } catch (e) {
+      steps.push({
+        type: "noop-nothing-to-migrate",
+        description: `No se pudo derivar catalog.yml desde app-catalog.md: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`
+      });
+    }
+  }
+  if (steps.length === 0) {
+    if (stackYmlExists && (catalogYmlExists || !catalogMdExists)) {
+      steps.push({
+        type: "noop-already-migrated",
+        description: "El cliente ya usa el schema nuevo \u2014 nada que migrar"
+      });
+    } else if (!hasCatalog(cacheDir) && !existsSync25(legacyMasterPath)) {
+      steps.push({
+        type: "noop-nothing-to-migrate",
+        description: "Context repo vac\xEDo o incompleto \u2014 corr\xE9 /devflow-ia:init-context primero"
+      });
+    }
+  }
+  return steps;
+}
+function applyMigration(cacheDir, slug, steps) {
+  for (const step of steps) {
+    if (step.type === "create-stack-yml-from-legacy-config") {
+      const raw = readFileSync18(path23.join(cacheDir, ".devflow", "config.yml"), "utf-8");
+      const parsed = yaml7.load(raw);
+      const next = buildStackFromLegacyMaster(slug, parsed);
+      const config = StackConfigSchema.parse(next);
+      saveStackConfig(cacheDir, config);
+    }
+    if (step.type === "create-catalog-yml-from-markdown") {
+      const catalog = loadCatalog(cacheDir);
+      if (catalog) saveCatalog(cacheDir, catalog);
+    }
+  }
+}
+function makeBackup(cacheDir, slug) {
+  const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+  const backupDir = `${path23.dirname(cacheDir)}/${slug}.bak-${ts}`;
+  cpSync(cacheDir, backupDir, { recursive: true });
+  return backupDir;
+}
+function commitAndPush(cacheDir, slug, steps, noPush) {
+  try {
+    const filesTouched = steps.filter((s) => s.to).map((s) => s.to).join(" ");
+    if (!filesTouched) return false;
+    runGit3(`git add ${filesTouched}`, cacheDir);
+    let status = "";
+    try {
+      status = runGit3("git diff --cached --stat", cacheDir);
+    } catch {
+    }
+    if (!status.trim()) return false;
+    runGit3(
+      `git commit -m "chore: migrate ${slug} to dd-cli v0.6 schemas
+
+${steps.map((s) => "- " + s.description).join("\n")}
+
+Generado por dd-cli client migrate"`,
+      cacheDir
+    );
+    if (!noPush) {
+      try {
+        runGit3("git push origin HEAD", cacheDir);
+      } catch {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+async function runClientMigrate(slug, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!slug) {
+    const err2 = {
+      code: "INVALID_INPUT",
+      message: "Falta el slug del cliente. Uso: dd-cli client migrate <slug>",
+      recovery_hints: ["Ejecut\xE1: dd-cli client list para ver los registrados"]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client migrate", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  const entry = getClient(slug);
+  if (!entry) {
+    const err2 = {
+      code: "CLIENT_NOT_REGISTERED",
+      message: `Cliente "${slug}" no registrado en ~/.devflow/registry.yml.`,
+      context: { slug },
+      recovery_hints: [
+        `Registr\xE1 el cliente primero: dd-cli register-client ${slug} --context-url=<url>`
+      ],
+      next_safe_command: `dd-cli register-client ${slug} --context-url=<url>`
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client migrate", ...err2 }));
+    printErr(err2.message);
+    return 2;
+  }
+  const cacheDir = getClientCacheDir(slug);
+  if (!existsSync25(cacheDir)) {
+    const err2 = {
+      code: "CONTEXT_CACHE_MISSING",
+      message: `Cache local no encontrada en ${cacheDir}.`,
+      context: { slug, cache_dir: cacheDir },
+      recovery_hints: [`Sincroniz\xE1: dd-cli pull-context ${slug}`]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client migrate", ...err2 }));
+    printErr(err2.message);
+    return 2;
+  }
+  const steps = planMigration(cacheDir, slug);
+  const apply = !!opts.apply;
+  const noPush = !!opts.noPush;
+  const plan = {
+    slug,
+    cache_dir: cacheDir,
+    steps,
+    applied: false,
+    pushed: false
+  };
+  const hasWork = steps.some((s) => s.type !== "noop-already-migrated" && s.type !== "noop-nothing-to-migrate");
+  if (!apply || !hasWork) {
+    if (jsonMode) {
+      emitJson(jsonSuccess("client migrate", plan, hasWork ? `dd-cli client migrate ${slug} --apply` : null));
+    }
+    console.log(bold(`
+Plan de migraci\xF3n para ${slug}
+`));
+    printDim(`  Cache: ${cacheDir}`);
+    console.log("");
+    for (const step of steps) {
+      const marker = step.type.startsWith("noop") ? printDim : printOk;
+      marker(`  ${step.description}`);
+    }
+    if (hasWork && !apply) {
+      console.log("");
+      printInfo("Para aplicar: dd-cli client migrate " + slug + " --apply");
+    }
+    recordCommandResult(slug, "client migrate", { success: true });
+    return 0;
+  }
+  try {
+    const backupDir = makeBackup(cacheDir, slug);
+    plan.backup_dir = backupDir;
+    if (!jsonMode) printDim(`  \u2713 Backup en ${backupDir}`);
+    applyMigration(cacheDir, slug, steps);
+    plan.applied = true;
+    if (!jsonMode) printOk("Migraci\xF3n aplicada en la cache local");
+    plan.pushed = commitAndPush(cacheDir, slug, steps, noPush);
+    if (!jsonMode) {
+      if (plan.pushed) printOk("Commit + push al context repo");
+      else if (noPush) printInfo("--no-push activo, commit local sin push");
+      else printWarn("No se pudo pushear (revis\xE1 permisos del token)");
+    }
+    recordCommandResult(slug, "client migrate", { success: true, state: "READY" });
+    if (jsonMode) {
+      emitJson(jsonSuccess("client migrate", plan, `dd-cli health --client=${slug}`));
+    }
+    console.log("");
+    printOk("Migraci\xF3n completada");
+    printInfo(`Verific\xE1: dd-cli health --client=${slug}`);
+    return 0;
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const errObj = {
+      code: "INTERNAL_ERROR",
+      message: `Error durante la migraci\xF3n: ${errMsg}`,
+      context: { slug, cache_dir: cacheDir, backup_dir: plan.backup_dir },
+      recovery_hints: [
+        plan.backup_dir ? `Restaur\xE1 desde el backup: rm -rf ${cacheDir} && mv ${plan.backup_dir} ${cacheDir}` : "",
+        `Report\xE1 el bug con el output de: dd-cli client migrate ${slug} --json`
+      ].filter(Boolean)
+    };
+    recordCommandResult(slug, "client migrate", { success: false, error: errObj });
+    if (jsonMode) emitJson(jsonError({ command: "client migrate", ...errObj }));
+    printErr(errObj.message);
+    return 1;
+  }
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -4148,6 +4448,16 @@ program.command("register-client <slug>").description("Registra un cliente y clo
       gitGroup: opts.gitGroup,
       gitBaseUrl: opts.gitBaseUrl
     }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+var clientCmd = program.command("client").description("Gesti\xF3n de clientes registrados (Sprint 3 agregar\xE1 new/show/list/...)");
+clientCmd.command("migrate <slug>").description("Migra un cliente legacy al schema nuevo (stack.yml + catalog.yml).").option("--apply", "Aplica los cambios. Sin esto, dry-run.", false).option("--no-push", "No pushear al context repo, solo commit local.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
+  const noPush = opts.push === false;
+  try {
+    process.exit(await runClientMigrate(slug, { apply: opts.apply, noPush, json: opts.json }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);
