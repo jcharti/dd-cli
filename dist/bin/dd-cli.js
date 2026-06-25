@@ -913,6 +913,18 @@ function getStackConfigPath(contextRepoRoot) {
 function hasStackConfig(contextRepoRoot) {
   return existsSync7(getStackConfigPath(contextRepoRoot));
 }
+function loadStackConfig(contextRepoRoot) {
+  const p = getStackConfigPath(contextRepoRoot);
+  if (!existsSync7(p)) return null;
+  const raw = readFileSync5(p, "utf-8");
+  const parsed = yaml2.load(raw);
+  const result = StackConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`stack.yml inv\xE1lido en ${p}:
+${result.error.message}`);
+  }
+  return result.data;
+}
 function saveStackConfig(contextRepoRoot, config) {
   const stackDir = path6.join(contextRepoRoot, STACK_DIR);
   if (!existsSync7(stackDir)) mkdirSync4(stackDir, { recursive: true });
@@ -1114,6 +1126,61 @@ function parseMarkdownCatalog(content) {
     }));
   }
   return apps;
+}
+
+// src/types/context-repo.ts
+import { z as z7 } from "zod";
+import { existsSync as existsSync10, mkdirSync as mkdirSync7, readFileSync as readFileSync8, writeFileSync as writeFileSync7 } from "fs";
+import * as path9 from "path";
+import * as yaml5 from "js-yaml";
+var ContextRepoSchema = z7.object({
+  kind: z7.literal("context-repo"),
+  schema_version: z7.string().default("1.1"),
+  client: z7.object({
+    slug: z7.string().min(1).regex(/^[a-z0-9-]+$/),
+    name: z7.string().min(1)
+  }),
+  provider: z7.object({
+    type: z7.enum(["gitlab", "github"]),
+    base_url: z7.string().url(),
+    group_or_org: z7.string().min(1)
+  }).optional(),
+  generated_by: z7.string().default("/devflow-ia:client-onboard"),
+  last_generated_at: z7.string(),
+  cli_version: z7.string(),
+  discovery_source: z7.object({
+    type: z7.literal("provider-api").default("provider-api"),
+    ref: z7.string().default("HEAD")
+  }).optional(),
+  checksums: z7.record(z7.string(), z7.string()).optional()
+});
+var MARKER_DIR = ".devflow-context";
+var MARKER_FILENAME = ".context-repo.yml";
+function getContextRepoMarkerPath(repoRoot) {
+  return path9.join(repoRoot, MARKER_DIR, MARKER_FILENAME);
+}
+function isContextRepo(repoRoot) {
+  if (existsSync10(getContextRepoMarkerPath(repoRoot))) return true;
+  const contextDir = path9.join(repoRoot, MARKER_DIR);
+  if (!existsSync10(contextDir)) return false;
+  const evidenceFiles = ["stack.yml", "catalog.yml", "app-catalog.md", "client-assessment.md"];
+  for (const f of evidenceFiles) {
+    if (existsSync10(path9.join(contextDir, f))) return true;
+  }
+  const projectConfig = path9.join(repoRoot, ".devflow", "config.yml");
+  return !existsSync10(projectConfig);
+}
+function loadContextRepoMarker(repoRoot) {
+  const p = getContextRepoMarkerPath(repoRoot);
+  if (!existsSync10(p)) return null;
+  const raw = readFileSync8(p, "utf-8");
+  const parsed = yaml5.load(raw);
+  const result = ContextRepoSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`.context-repo.yml inv\xE1lido en ${p}:
+${result.error.message}`);
+  }
+  return result.data;
 }
 
 // src/providers/types.ts
@@ -1502,8 +1569,8 @@ function defaultBaseUrlFor(type, raw) {
 var CLI_VERSION = "0.5.1";
 
 // src/commands/init.ts
-import { existsSync as existsSync10, readFileSync as readFileSync8, writeFileSync as writeFileSync7, mkdirSync as mkdirSync7, readdirSync, statSync as statSync3, copyFileSync, rmSync } from "fs";
-import * as path9 from "path";
+import { existsSync as existsSync11, readFileSync as readFileSync9, writeFileSync as writeFileSync8, mkdirSync as mkdirSync8, readdirSync, statSync as statSync3, copyFileSync, rmSync } from "fs";
+import * as path10 from "path";
 import { fileURLToPath } from "url";
 
 // src/utils/output.ts
@@ -1551,33 +1618,33 @@ var META_FILES = /* @__PURE__ */ new Set([
   "DISENO_INIT_CONTEXT.md"
 ]);
 function resolveSkillsSourceDir() {
-  const here = path9.dirname(fileURLToPath(import.meta.url));
-  const bundled = path9.resolve(here, "..", "..", "skills");
-  if (existsSync10(bundled)) return bundled;
-  const monorepo = path9.resolve(here, "..", "..", "..", "skills");
-  if (existsSync10(monorepo)) return monorepo;
+  const here = path10.dirname(fileURLToPath(import.meta.url));
+  const bundled = path10.resolve(here, "..", "..", "skills");
+  if (existsSync11(bundled)) return bundled;
+  const monorepo = path10.resolve(here, "..", "..", "..", "skills");
+  if (existsSync11(monorepo)) return monorepo;
   return null;
 }
 function copySkillsTree(srcDir, destDir) {
-  if (!existsSync10(destDir)) mkdirSync7(destDir, { recursive: true });
+  if (!existsSync11(destDir)) mkdirSync8(destDir, { recursive: true });
   const copied = [];
   const entries = readdirSync(srcDir);
   for (const entry of entries) {
-    const srcPath = path9.join(srcDir, entry);
-    const destPath = path9.join(destDir, entry);
+    const srcPath = path10.join(srcDir, entry);
+    const destPath = path10.join(destDir, entry);
     const st = statSync3(srcPath);
     if (st.isDirectory()) {
       copied.push(...copySkillsTree(srcPath, destPath));
     } else if (st.isFile() && entry.endsWith(".md") && !META_FILES.has(entry)) {
       copyFileSync(srcPath, destPath);
-      copied.push(path9.relative(destDir, destPath));
+      copied.push(path10.relative(destDir, destPath));
     }
   }
   return copied;
 }
 function writeSkillsVersion() {
   const skillsDir = getClaudeSkillsDir();
-  writeFileSync7(path9.join(skillsDir, ".version"), `${CLI_VERSION}
+  writeFileSync8(path10.join(skillsDir, ".version"), `${CLI_VERSION}
 `, "utf-8");
 }
 function buildSettingsJson(existing = {}) {
@@ -1617,20 +1684,20 @@ function buildSettingsJson(existing = {}) {
 }
 async function runInit(opts = {}) {
   const projectRoot = getProjectRoot();
-  const claudeMdPath = path9.join(projectRoot, "CLAUDE.md");
-  if (!existsSync10(claudeMdPath) || opts.force) {
-    const here = path9.dirname(fileURLToPath(import.meta.url));
-    const templatePath = path9.resolve(here, "..", "..", "templates", "CLAUDE.md.template");
-    if (existsSync10(templatePath)) {
-      const projectName = path9.basename(projectRoot);
-      let content = readFileSync8(templatePath, "utf-8");
+  const claudeMdPath = path10.join(projectRoot, "CLAUDE.md");
+  if (!existsSync11(claudeMdPath) || opts.force) {
+    const here = path10.dirname(fileURLToPath(import.meta.url));
+    const templatePath = path10.resolve(here, "..", "..", "templates", "CLAUDE.md.template");
+    if (existsSync11(templatePath)) {
+      const projectName = path10.basename(projectRoot);
+      let content = readFileSync9(templatePath, "utf-8");
       content = content.replaceAll("{{PROJECT_NAME}}", projectName);
       content = content.replaceAll("{{STACK}}", "Completar en CLAUDE.md");
       content = content.replaceAll("{{INFRA}}", "Completar en CLAUDE.md");
       content = content.replaceAll("{{BACKEND_FRAMEWORK}}", "Completar en CLAUDE.md");
       content = content.replaceAll("{{FRONTEND_FRAMEWORK}}", "Completar en CLAUDE.md");
       content = content.replaceAll("{{DB}}", "Completar en CLAUDE.md");
-      writeFileSync7(claudeMdPath, content, "utf-8");
+      writeFileSync8(claudeMdPath, content, "utf-8");
     }
   }
   console.log(bold(`
@@ -1645,7 +1712,7 @@ DevFlow IA \u2014 init`));
   printOk(`Detectado Claude Code en ${getClaudeHome()}`);
   const devflowDir = getDevflowDir(projectRoot);
   const sessionPath = getSessionPath(projectRoot);
-  const sessionExists = existsSync10(sessionPath);
+  const sessionExists = existsSync11(sessionPath);
   if (sessionExists && !opts.force) {
     printWarn(`.devflow/session.json ya existe \u2014 usa --force para sobrescribir`);
   } else {
@@ -1673,14 +1740,14 @@ DevFlow IA \u2014 init`));
   }
   if (!opts.skipHooks) {
     const projectClaudeDir = getProjectClaudeDir(projectRoot);
-    if (!existsSync10(projectClaudeDir)) {
-      mkdirSync7(projectClaudeDir, { recursive: true });
+    if (!existsSync11(projectClaudeDir)) {
+      mkdirSync8(projectClaudeDir, { recursive: true });
     }
     const settingsPath = getProjectClaudeSettingsPath(projectRoot);
     let existing = {};
-    if (existsSync10(settingsPath)) {
+    if (existsSync11(settingsPath)) {
       try {
-        existing = JSON.parse(readFileSync8(settingsPath, "utf-8"));
+        existing = JSON.parse(readFileSync9(settingsPath, "utf-8"));
       } catch {
         if (!opts.force) {
           printErr(`.claude/settings.json existe pero no es JSON v\xE1lido \u2014 usa --force para sobrescribir`);
@@ -1689,12 +1756,12 @@ DevFlow IA \u2014 init`));
       }
     }
     const merged = buildSettingsJson(existing);
-    writeFileSync7(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+    writeFileSync8(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
     printOk(`Hooks configurados en .claude/settings.json`);
   } else {
     printDim(`  (skip hooks)`);
   }
-  if (existsSync10(path9.join(projectRoot, "CLAUDE.md"))) {
+  if (existsSync11(path10.join(projectRoot, "CLAUDE.md"))) {
     printOk(`CLAUDE.md generado con auto-onboarding`);
     printDim(`  Edita las variables {{...}} con los datos del proyecto`);
   }
@@ -1879,8 +1946,8 @@ function stageStatus(stageIndex, currentIndex, flowState) {
 }
 
 // src/commands/status-narrative.ts
-import { existsSync as existsSync11, readFileSync as readFileSync9, writeFileSync as writeFileSync8 } from "fs";
-import * as path10 from "path";
+import { existsSync as existsSync12, readFileSync as readFileSync10, writeFileSync as writeFileSync9 } from "fs";
+import * as path11 from "path";
 var isTTY2 = process.stdout.isTTY;
 var c = {
   green: (s) => isTTY2 ? `\x1B[32m${s}\x1B[0m` : s,
@@ -2082,15 +2149,15 @@ function stripAnsi(str) {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 function popLastTransition(projectRoot) {
-  const logPath = path10.join(getDevflowDir(projectRoot), "transitions.log");
-  const ackPath = path10.join(getDevflowDir(projectRoot), "transitions.ack");
-  if (!existsSync11(logPath)) return null;
-  const lines = readFileSync9(logPath, "utf-8").trim().split("\n").filter(Boolean);
+  const logPath = path11.join(getDevflowDir(projectRoot), "transitions.log");
+  const ackPath = path11.join(getDevflowDir(projectRoot), "transitions.ack");
+  if (!existsSync12(logPath)) return null;
+  const lines = readFileSync10(logPath, "utf-8").trim().split("\n").filter(Boolean);
   if (lines.length === 0) return null;
   const lastLine = lines[lines.length - 1];
-  const lastAck = existsSync11(ackPath) ? readFileSync9(ackPath, "utf-8").trim() : "";
+  const lastAck = existsSync12(ackPath) ? readFileSync10(ackPath, "utf-8").trim() : "";
   if (lastAck === lastLine) return null;
-  writeFileSync8(ackPath, lastLine, "utf-8");
+  writeFileSync9(ackPath, lastLine, "utf-8");
   return lastLine;
 }
 
@@ -2196,29 +2263,29 @@ Sesi\xF3n cerrada
 }
 
 // src/types/credentials.ts
-import { z as z7 } from "zod";
-import { existsSync as existsSync12, readFileSync as readFileSync10, writeFileSync as writeFileSync9, chmodSync } from "fs";
-import * as path11 from "path";
-import * as yaml5 from "js-yaml";
-var GitHostSchema = z7.enum(["gitlab", "github", "bitbucket", "azure"]);
-var ClientCredentialsSchema = z7.object({
-  git_token: z7.string().min(1),
+import { z as z8 } from "zod";
+import { existsSync as existsSync13, readFileSync as readFileSync11, writeFileSync as writeFileSync10, chmodSync } from "fs";
+import * as path12 from "path";
+import * as yaml6 from "js-yaml";
+var GitHostSchema = z8.enum(["gitlab", "github", "bitbucket", "azure"]);
+var ClientCredentialsSchema = z8.object({
+  git_token: z8.string().min(1),
   git_host: GitHostSchema.default("gitlab"),
-  git_base_url: z7.string().url().default("https://gitlab.com"),
-  git_group: z7.string().min(1)
+  git_base_url: z8.string().url().default("https://gitlab.com"),
+  git_group: z8.string().min(1)
   // grupo/org a escanear
 });
-var CredentialsFileSchema = z7.object({
-  clients: z7.record(z7.string(), ClientCredentialsSchema).default({})
+var CredentialsFileSchema = z8.object({
+  clients: z8.record(z8.string(), ClientCredentialsSchema).default({})
 });
 function getCredentialsPath() {
-  return path11.join(getDevflowGlobalDir(), "credentials.yml");
+  return path12.join(getDevflowGlobalDir(), "credentials.yml");
 }
 function loadCredentials() {
   const p = getCredentialsPath();
-  if (!existsSync12(p)) return { clients: {} };
-  const raw = readFileSync10(p, "utf-8");
-  const parsed = yaml5.load(raw);
+  if (!existsSync13(p)) return { clients: {} };
+  const raw = readFileSync11(p, "utf-8");
+  const parsed = yaml6.load(raw);
   const result = CredentialsFileSchema.safeParse(parsed ?? {});
   if (!result.success) throw new Error(`credentials.yml inv\xE1lido:
 ${result.error.message}`);
@@ -2227,8 +2294,8 @@ ${result.error.message}`);
 function saveCredentials(creds) {
   const p = getCredentialsPath();
   const validated = CredentialsFileSchema.parse(creds);
-  const yamlStr = yaml5.dump(validated, { indent: 2 });
-  writeFileSync9(p, yamlStr, { encoding: "utf-8", mode: 384 });
+  const yamlStr = yaml6.dump(validated, { indent: 2 });
+  writeFileSync10(p, yamlStr, { encoding: "utf-8", mode: 384 });
   try {
     chmodSync(p, 384);
   } catch {
@@ -2610,25 +2677,25 @@ function runNext() {
 }
 
 // src/commands/heartbeat.ts
-import { existsSync as existsSync13, appendFileSync, mkdirSync as mkdirSync8 } from "fs";
-import * as path12 from "path";
+import { existsSync as existsSync14, appendFileSync, mkdirSync as mkdirSync9 } from "fs";
+import * as path13 from "path";
 function log(msg, silent) {
   if (!silent) console.log(msg);
 }
 function safeLog(projectRoot, line) {
   try {
     const dir = getDevflowDir(projectRoot);
-    if (!existsSync13(dir)) mkdirSync8(dir, { recursive: true });
-    appendFileSync(path12.join(dir, "heartbeat.log"), line + "\n", "utf-8");
+    if (!existsSync14(dir)) mkdirSync9(dir, { recursive: true });
+    appendFileSync(path13.join(dir, "heartbeat.log"), line + "\n", "utf-8");
   } catch {
   }
 }
 function safeLogTransition(projectRoot, from, to) {
   try {
     const dir = getDevflowDir(projectRoot);
-    if (!existsSync13(dir)) mkdirSync8(dir, { recursive: true });
+    if (!existsSync14(dir)) mkdirSync9(dir, { recursive: true });
     const line = `${(/* @__PURE__ */ new Date()).toISOString()}  flow_state: ${from} \u2192 ${to}`;
-    appendFileSync(path12.join(dir, "transitions.log"), line + "\n", "utf-8");
+    appendFileSync(path13.join(dir, "transitions.log"), line + "\n", "utf-8");
   } catch {
   }
 }
@@ -2726,11 +2793,11 @@ async function runHeartbeat(opts = {}) {
 }
 
 // src/commands/skills-cmd.ts
-import { existsSync as existsSync14, readdirSync as readdirSync2, statSync as statSync4, readFileSync as readFileSync11 } from "fs";
+import { existsSync as existsSync15, readdirSync as readdirSync2, statSync as statSync4, readFileSync as readFileSync12 } from "fs";
 import { createHash } from "crypto";
-import * as path13 from "path";
+import * as path14 from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
-var __dirname = path13.dirname(fileURLToPath2(import.meta.url));
+var __dirname = path14.dirname(fileURLToPath2(import.meta.url));
 var META_FILES2 = /* @__PURE__ */ new Set([
   "AUDIT.md",
   "CUSTOMIZATION.md",
@@ -2749,22 +2816,22 @@ function parseFrontmatter(content) {
   return fm;
 }
 function sha256File(filePath) {
-  const content = readFileSync11(filePath);
+  const content = readFileSync12(filePath);
   return createHash("sha256").update(content).digest("hex");
 }
 function collectSkills(dir, relBase = "") {
   const skills2 = [];
-  if (!existsSync14(dir)) return skills2;
+  if (!existsSync15(dir)) return skills2;
   for (const entry of readdirSync2(dir)) {
-    const fullPath = path13.join(dir, entry);
+    const fullPath = path14.join(dir, entry);
     const st = statSync4(fullPath);
     if (st.isDirectory()) {
-      skills2.push(...collectSkills(fullPath, path13.join(relBase, entry)));
+      skills2.push(...collectSkills(fullPath, path14.join(relBase, entry)));
     } else if (entry.endsWith(".md") && !META_FILES2.has(entry)) {
-      const content = readFileSync11(fullPath, "utf-8");
+      const content = readFileSync12(fullPath, "utf-8");
       const fm = parseFrontmatter(content);
       skills2.push({
-        relPath: path13.join(relBase, entry),
+        relPath: path14.join(relBase, entry),
         name: fm["name"] ?? entry.replace(".md", ""),
         category: fm["category"] ?? "?",
         model: fm["model"] ?? "?",
@@ -2776,28 +2843,28 @@ function collectSkills(dir, relBase = "") {
   return skills2;
 }
 function resolveChecksumsPath() {
-  const pkgRoot = path13.resolve(__dirname, "..", "..");
-  const candidate = path13.join(pkgRoot, "skills.checksums");
-  return existsSync14(candidate) ? candidate : null;
+  const pkgRoot = path14.resolve(__dirname, "..", "..");
+  const candidate = path14.join(pkgRoot, "skills.checksums");
+  return existsSync15(candidate) ? candidate : null;
 }
 function loadChecksums() {
   const p = resolveChecksumsPath();
   if (!p) return {};
   try {
-    return JSON.parse(readFileSync11(p, "utf-8"));
+    return JSON.parse(readFileSync12(p, "utf-8"));
   } catch {
     return {};
   }
 }
 function runSkillsList() {
   const skillsDir = getClaudeSkillsDir();
-  if (!existsSync14(skillsDir)) {
+  if (!existsSync15(skillsDir)) {
     printWarn(`Skills no instaladas en ${skillsDir}`);
     printDim(`  Ejecuta: dd-cli init`);
     return 1;
   }
-  const versionFile = path13.join(skillsDir, ".version");
-  const version = existsSync14(versionFile) ? readFileSync11(versionFile, "utf-8").trim() : "?";
+  const versionFile = path14.join(skillsDir, ".version");
+  const version = existsSync15(versionFile) ? readFileSync12(versionFile, "utf-8").trim() : "?";
   const skills2 = collectSkills(skillsDir);
   console.log(`
 Skills instaladas en ${skillsDir} (v${version})
@@ -2836,7 +2903,7 @@ function runSkillsVerify() {
       printWarn(`${s.relPath}: no est\xE1 en checksums (skill nueva?)`);
       continue;
     }
-    const actual = sha256File(path13.join(skillsDir, s.relPath));
+    const actual = sha256File(path14.join(skillsDir, s.relPath));
     if (actual === expected) {
       ok2++;
     } else {
@@ -2949,7 +3016,7 @@ ${bold3(`Est\xE1s en: ${stageName}`)} ${dim3(`(paso ${ctx?.currentIndex ?? "?"}/
 
 // src/commands/reclassify-cmd.ts
 import { appendFileSync as appendFileSync2 } from "fs";
-import * as path14 from "path";
+import * as path15 from "path";
 
 // src/commands/reclassify.ts
 var MIN_REASON_CHARS = 30;
@@ -3060,7 +3127,7 @@ function runReclassifyCmd(opts) {
   saveSession(projectRoot, updated);
   const auditLine = `${(/* @__PURE__ */ new Date()).toISOString()}  HDU ${session.feature_id}  ${session.dev_type} \u2192 ${updated.dev_type}  reason: ${opts.reason}`;
   try {
-    appendFileSync2(path14.join(getDevflowDir(projectRoot), "audit.log"), auditLine + "\n", "utf-8");
+    appendFileSync2(path15.join(getDevflowDir(projectRoot), "audit.log"), auditLine + "\n", "utf-8");
   } catch {
   }
   console.log("");
@@ -3077,9 +3144,9 @@ function runReclassifyCmd(opts) {
 
 // src/commands/register-client.ts
 import { execSync } from "child_process";
-import { existsSync as existsSync16, mkdirSync as mkdirSync9, readFileSync as readFileSync13, rmSync as rmSync2 } from "fs";
-import * as path15 from "path";
-import * as yaml6 from "js-yaml";
+import { existsSync as existsSync17, mkdirSync as mkdirSync10, readFileSync as readFileSync14, rmSync as rmSync2 } from "fs";
+import * as path16 from "path";
+import * as yaml7 from "js-yaml";
 function runGit(cmd, cwd) {
   try {
     return execSync(cmd, {
@@ -3097,20 +3164,20 @@ function deriveNameFromUrl(url) {
   return base.replace(/-devflow-context$/, "");
 }
 function readClientName(cacheDir, contextUrl) {
-  const stackYmlPath = path15.join(cacheDir, ".devflow-context", "stack.yml");
-  if (existsSync16(stackYmlPath)) {
+  const stackYmlPath = path16.join(cacheDir, ".devflow-context", "stack.yml");
+  if (existsSync17(stackYmlPath)) {
     try {
-      const parsed = yaml6.load(readFileSync13(stackYmlPath, "utf-8"));
+      const parsed = yaml7.load(readFileSync14(stackYmlPath, "utf-8"));
       const client = parsed?.client;
       const name = client?.name;
       if (typeof name === "string" && name.trim()) return name.trim();
     } catch {
     }
   }
-  const contextRepoYmlPath = path15.join(cacheDir, ".devflow-context", ".context-repo.yml");
-  if (existsSync16(contextRepoYmlPath)) {
+  const contextRepoYmlPath = path16.join(cacheDir, ".devflow-context", ".context-repo.yml");
+  if (existsSync17(contextRepoYmlPath)) {
     try {
-      const parsed = yaml6.load(readFileSync13(contextRepoYmlPath, "utf-8"));
+      const parsed = yaml7.load(readFileSync14(contextRepoYmlPath, "utf-8"));
       const client = parsed?.client;
       const name = client?.name;
       if (typeof name === "string" && name.trim()) return name.trim();
@@ -3118,10 +3185,10 @@ function readClientName(cacheDir, contextUrl) {
     }
   }
   for (const filename of ["CLAUDE.md", "README.md"]) {
-    const mdPath = path15.join(cacheDir, filename);
-    if (existsSync16(mdPath)) {
+    const mdPath = path16.join(cacheDir, filename);
+    if (existsSync17(mdPath)) {
       try {
-        const content = readFileSync13(mdPath, "utf-8");
+        const content = readFileSync14(mdPath, "utf-8");
         const h1 = content.match(/^#\s+(.+?)\s*$/m);
         if (h1 && h1[1]?.trim()) return h1[1].trim();
       } catch {
@@ -3145,13 +3212,13 @@ Registrando cliente: ${slug}
     printInfo(`El cliente "${slug}" ya est\xE1 registrado. Actualizando cache...`);
     return syncClient(slug, cacheDir, opts.contextUrl);
   }
-  const parentDir = path15.dirname(cacheDir);
-  if (!existsSync16(parentDir)) mkdirSync9(parentDir, { recursive: true });
-  if (existsSync16(cacheDir) && opts.force) {
+  const parentDir = path16.dirname(cacheDir);
+  if (!existsSync17(parentDir)) mkdirSync10(parentDir, { recursive: true });
+  if (existsSync17(cacheDir) && opts.force) {
     printDim(`  Sobreescribiendo cache existente en ${cacheDir}`);
     rmSync2(cacheDir, { recursive: true, force: true });
   }
-  if (!existsSync16(cacheDir)) {
+  if (!existsSync17(cacheDir)) {
     printInfo(`Clonando repo de contexto...`);
     printDim(`  ${opts.contextUrl}`);
     printDim(`  \u2192 ${cacheDir}`);
@@ -3205,11 +3272,11 @@ Registrando cliente: ${slug}
   return 0;
 }
 function syncClient(slug, cacheDir, contextUrl) {
-  if (!existsSync16(cacheDir)) {
+  if (!existsSync17(cacheDir)) {
     printWarn(`Cache local no encontrada. Clonando de nuevo...`);
     try {
-      const parentDir = path15.dirname(cacheDir);
-      if (!existsSync16(parentDir)) mkdirSync9(parentDir, { recursive: true });
+      const parentDir = path16.dirname(cacheDir);
+      if (!existsSync17(parentDir)) mkdirSync10(parentDir, { recursive: true });
       runGit(`git clone "${contextUrl}" "${cacheDir}"`);
     } catch (e) {
       printErr(`Error al clonar: ${e instanceof Error ? e.message : String(e)}`);
@@ -3238,8 +3305,8 @@ function syncClient(slug, cacheDir, contextUrl) {
 }
 
 // src/commands/init-client.ts
-import { existsSync as existsSync17 } from "fs";
-import * as path16 from "path";
+import { existsSync as existsSync18 } from "fs";
+import * as path17 from "path";
 import { execSync as execSync2 } from "child_process";
 import { select as select2, input as input2, confirm } from "@inquirer/prompts";
 var isTTY6 = process.stdout.isTTY;
@@ -3256,9 +3323,9 @@ function toEntry(app) {
 function syncCache(slug, contextUrl) {
   const cacheDir = getClientCacheDir(slug);
   try {
-    if (!existsSync17(cacheDir)) {
-      const { mkdirSync: mkdirSync15 } = __require("fs");
-      mkdirSync15(path16.dirname(cacheDir), { recursive: true });
+    if (!existsSync18(cacheDir)) {
+      const { mkdirSync: mkdirSync16 } = __require("fs");
+      mkdirSync16(path17.dirname(cacheDir), { recursive: true });
       execSync2(`git clone "${contextUrl}" "${cacheDir}"`, { stdio: "pipe" });
     } else {
       execSync2("git pull", { cwd: cacheDir, stdio: "pipe" });
@@ -3341,7 +3408,7 @@ Conectando repo al cliente: ${clientSlug}
     printInfo("Registrando nueva app en el contexto del cliente:");
     appSlug = await input2({
       message: "Slug de la app (kebab-case):",
-      default: path16.basename(projectRoot),
+      default: path17.basename(projectRoot),
       validate: (v) => /^[a-z0-9-]+$/.test(v) || "Debe ser kebab-case (solo min\xFAsculas, n\xFAmeros y guiones)"
     });
     appType = await select2({
@@ -3403,8 +3470,8 @@ Conectando repo al cliente: ${clientSlug}
 
 // src/commands/pull-context.ts
 import { execSync as execSync3 } from "child_process";
-import { existsSync as existsSync18, mkdirSync as mkdirSync10 } from "fs";
-import * as path17 from "path";
+import { existsSync as existsSync19, mkdirSync as mkdirSync11 } from "fs";
+import * as path18 from "path";
 function runGit2(cmd, cwd) {
   return execSync3(cmd, {
     cwd,
@@ -3476,10 +3543,10 @@ Actualizando contexto del cliente: ${slug}
     printDim(`  Fuente: ${context_url}`);
     console.log("");
   }
-  if (!existsSync18(cacheDir)) {
+  if (!existsSync19(cacheDir)) {
     if (!jsonMode) printInfo("Cache local no encontrada. Clonando...");
     try {
-      mkdirSync10(path17.dirname(cacheDir), { recursive: true });
+      mkdirSync11(path18.dirname(cacheDir), { recursive: true });
       execSync3(`git clone "${context_url}" "${cacheDir}"`, { stdio: "pipe" });
       updateLastSynced(slug);
       recordCommandResult(slug, "pull-context", { success: true });
@@ -3598,7 +3665,7 @@ Actualizando contexto del cliente: ${slug}
 }
 
 // src/commands/doctor-cmd.ts
-import { existsSync as existsSync19 } from "fs";
+import { existsSync as existsSync20 } from "fs";
 
 // src/commands/doctor.ts
 function doctor({ projectRoot, session, forType }) {
@@ -3635,14 +3702,14 @@ ${bold("Diagn\xF3stico del entorno DevFlow IA")}
     printDim(`  Instala Claude Code: https://claude.com/claude-code`);
   }
   const skillsDir = getClaudeSkillsDir();
-  if (existsSync19(skillsDir)) {
+  if (existsSync20(skillsDir)) {
     printOk(`Skills instaladas en ${skillsDir}`);
   } else {
     printWarn(`Skills no instaladas`);
     printDim(`  Ejecuta: dd-cli init`);
   }
   const settingsPath = `${projectRoot}/.claude/settings.json`;
-  if (existsSync19(settingsPath)) {
+  if (existsSync20(settingsPath)) {
     printOk(`.claude/settings.json con hooks presente`);
   } else {
     printWarn(`.claude/settings.json no encontrado`);
@@ -3747,8 +3814,8 @@ function humanizeRuleId(technicalMsg) {
 }
 
 // src/commands/watch.ts
-import { existsSync as existsSync20, readFileSync as readFileSync14 } from "fs";
-import * as path18 from "path";
+import { existsSync as existsSync21, readFileSync as readFileSync15 } from "fs";
+import * as path19 from "path";
 var isTTY8 = process.stdout.isTTY;
 var c2 = {
   reset: "\x1B[0m",
@@ -3772,11 +3839,11 @@ function progressBar(done, total, width = 12) {
 }
 function activeChangeName(projectRoot) {
   try {
-    const changes = path18.join(projectRoot, "openspec", "changes");
-    if (!existsSync20(changes)) return null;
-    const { readdirSync: readdirSync5, statSync: statSync5 } = __require("fs");
-    const entries = readdirSync5(changes).filter((e) => {
-      return statSync5(path18.join(changes, e)).isDirectory() && existsSync20(path18.join(changes, e, "tasks.md"));
+    const changes = path19.join(projectRoot, "openspec", "changes");
+    if (!existsSync21(changes)) return null;
+    const { readdirSync: readdirSync6, statSync: statSync5 } = __require("fs");
+    const entries = readdirSync6(changes).filter((e) => {
+      return statSync5(path19.join(changes, e)).isDirectory() && existsSync21(path19.join(changes, e, "tasks.md"));
     });
     return entries[0] ?? null;
   } catch {
@@ -3785,7 +3852,7 @@ function activeChangeName(projectRoot) {
 }
 function countTasks(projectRoot, changeName) {
   try {
-    const content = readFileSync14(path18.join(projectRoot, "openspec", "changes", changeName, "tasks.md"), "utf-8");
+    const content = readFileSync15(path19.join(projectRoot, "openspec", "changes", changeName, "tasks.md"), "utf-8");
     const total = (content.match(/^- \[[ x]\]/gm) ?? []).length;
     const done = (content.match(/^- \[x\]/gm) ?? []).length;
     return { done, total };
@@ -3886,24 +3953,24 @@ async function runWatch(opts = {}) {
   };
   render();
   const timer = setInterval(render, interval);
-  await new Promise((resolve6) => {
+  await new Promise((resolve7) => {
     process.on("SIGINT", () => {
       clearInterval(timer);
       cleanup();
-      resolve6();
+      resolve7();
     });
   });
 }
 
 // src/commands/install-cmd.ts
-import { existsSync as existsSync21, mkdirSync as mkdirSync11, readFileSync as readFileSync15, writeFileSync as writeFileSync10 } from "fs";
-import * as path19 from "path";
+import { existsSync as existsSync22, mkdirSync as mkdirSync12, readFileSync as readFileSync16, writeFileSync as writeFileSync11 } from "fs";
+import * as path20 from "path";
 var STATUSLINE_COMMAND = "dd-cli statusline";
 function readGlobalSettings() {
   const settingsPath = getClaudeGlobalSettingsPath();
-  if (!existsSync21(settingsPath)) return {};
+  if (!existsSync22(settingsPath)) return {};
   try {
-    return JSON.parse(readFileSync15(settingsPath, "utf-8"));
+    return JSON.parse(readFileSync16(settingsPath, "utf-8"));
   } catch {
     throw new Error(
       `${settingsPath} existe pero no es JSON v\xE1lido. Corr\xEDgelo manualmente o usa --force.`
@@ -3912,9 +3979,9 @@ function readGlobalSettings() {
 }
 function writeGlobalSettings(settings) {
   const settingsPath = getClaudeGlobalSettingsPath();
-  const dir = path19.dirname(settingsPath);
-  if (!existsSync21(dir)) mkdirSync11(dir, { recursive: true });
-  writeFileSync10(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  const dir = path20.dirname(settingsPath);
+  if (!existsSync22(dir)) mkdirSync12(dir, { recursive: true });
+  writeFileSync11(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
 }
 async function runInstall(opts = {}) {
   console.log(bold("\nDevFlow IA \u2014 install (global)\n"));
@@ -3962,7 +4029,7 @@ async function runInstall(opts = {}) {
 }
 async function runUninstall() {
   console.log(bold("\nDevFlow IA \u2014 uninstall (global)\n"));
-  if (!existsSync21(getClaudeGlobalSettingsPath())) {
+  if (!existsSync22(getClaudeGlobalSettingsPath())) {
     printInfo("No hay settings.json global; nada que desinstalar.");
     return 0;
   }
@@ -4115,29 +4182,29 @@ function runFlow(opts = {}) {
 
 // src/commands/new-hdu-cmd.ts
 import { execSync as execSync4, spawn } from "child_process";
-import { existsSync as existsSync23, mkdirSync as mkdirSync12, readdirSync as readdirSync3, writeFileSync as writeFileSync11 } from "fs";
-import * as path21 from "path";
+import { existsSync as existsSync24, mkdirSync as mkdirSync13, readdirSync as readdirSync3, writeFileSync as writeFileSync12 } from "fs";
+import * as path22 from "path";
 
 // src/utils/templates.ts
-import { existsSync as existsSync22, readFileSync as readFileSync16 } from "fs";
-import * as path20 from "path";
+import { existsSync as existsSync23, readFileSync as readFileSync17 } from "fs";
+import * as path21 from "path";
 import { fileURLToPath as fileURLToPath3 } from "url";
 function resolveTemplatesDir() {
-  const here = path20.dirname(fileURLToPath3(import.meta.url));
-  const bundled = path20.resolve(here, "..", "..", "templates");
-  if (existsSync22(bundled)) return bundled;
-  const monorepo = path20.resolve(here, "..", "..", "..", "templates");
-  if (existsSync22(monorepo)) return monorepo;
+  const here = path21.dirname(fileURLToPath3(import.meta.url));
+  const bundled = path21.resolve(here, "..", "..", "templates");
+  if (existsSync23(bundled)) return bundled;
+  const monorepo = path21.resolve(here, "..", "..", "..", "templates");
+  if (existsSync23(monorepo)) return monorepo;
   return null;
 }
 function getTemplatePath(name) {
   const dir = resolveTemplatesDir();
   if (!dir) return null;
-  const full = path20.join(dir, name);
-  return existsSync22(full) ? full : null;
+  const full = path21.join(dir, name);
+  return existsSync23(full) ? full : null;
 }
 function renderTemplate(templatePath, vars) {
-  let content = readFileSync16(templatePath, "utf-8");
+  let content = readFileSync17(templatePath, "utf-8");
   for (const [key, value] of Object.entries(vars)) {
     content = content.replaceAll(`{{${key}}}`, value);
   }
@@ -4145,7 +4212,7 @@ function renderTemplate(templatePath, vars) {
 }
 
 // src/commands/new-hdu-cmd.ts
-var HDU_DIR = path21.join("docs", "hdus");
+var HDU_DIR = path22.join("docs", "hdus");
 function slugify(title) {
   return title.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "").slice(0, 60);
 }
@@ -4153,7 +4220,7 @@ function pad(n) {
   return n.toString().padStart(3, "0");
 }
 function nextHduId(hduDir) {
-  if (!existsSync23(hduDir)) return "001";
+  if (!existsSync24(hduDir)) return "001";
   const entries = readdirSync3(hduDir).filter((f) => f.endsWith(".md"));
   let max = 0;
   for (const entry of entries) {
@@ -4211,13 +4278,13 @@ async function runNewHdu(title, opts = {}) {
     printInfo("Ejecuta primero: dd-cli init  (o dd-cli init --client=<slug>)");
     return 2;
   }
-  const hduDir = path21.join(projectRoot, HDU_DIR);
-  if (!existsSync23(hduDir)) mkdirSync12(hduDir, { recursive: true });
+  const hduDir = path22.join(projectRoot, HDU_DIR);
+  if (!existsSync24(hduDir)) mkdirSync13(hduDir, { recursive: true });
   const id = nextHduId(hduDir);
   const slug = slugify(title.trim());
   const fileName = `HDU-${id}-${slug}.md`;
-  const hduPath = path21.join(hduDir, fileName);
-  const hduPathRel = path21.relative(projectRoot, hduPath);
+  const hduPath = path22.join(hduDir, fileName);
+  const hduPathRel = path22.relative(projectRoot, hduPath);
   const templatePath = getTemplatePath("HDU.md.template");
   if (!templatePath) {
     printErr("No encontr\xE9 HDU.md.template en el paquete.");
@@ -4231,11 +4298,11 @@ async function runNewHdu(title, opts = {}) {
     DATE: today,
     USER: getGitUser(projectRoot)
   });
-  if (existsSync23(hduPath)) {
+  if (existsSync24(hduPath)) {
     printErr(`Ya existe ${hduPathRel}. Cambia el t\xEDtulo o borra el archivo.`);
     return 1;
   }
-  writeFileSync11(hduPath, content, "utf-8");
+  writeFileSync12(hduPath, content, "utf-8");
   console.log(bold(`
 DevFlow IA \u2014 nueva HDU
 `));
@@ -4258,8 +4325,8 @@ DevFlow IA \u2014 nueva HDU
 }
 
 // src/commands/health-cmd.ts
-import { existsSync as existsSync24, readFileSync as readFileSync17 } from "fs";
-import * as path22 from "path";
+import { existsSync as existsSync25, readFileSync as readFileSync18 } from "fs";
+import * as path23 from "path";
 import { readdirSync as readdirSync4 } from "fs";
 function check(label, status, detail) {
   const icons = { ok: ok("\u2713"), warn: warn("\u26A0"), err: err("\u2717"), skip: dim("\xB7") };
@@ -4284,27 +4351,27 @@ function formatAge(isoDate) {
 }
 function checkSkills() {
   const skillsDir = getClaudeSkillsDir();
-  if (!existsSync24(skillsDir)) {
+  if (!existsSync25(skillsDir)) {
     return { status: "err", detail: `no instaladas \u2014 ejecuta: dd-cli init o dd-cli skills install` };
   }
-  const versionFile = path22.join(skillsDir, ".version");
-  if (!existsSync24(versionFile)) {
+  const versionFile = path23.join(skillsDir, ".version");
+  if (!existsSync25(versionFile)) {
     return { status: "warn", detail: `instaladas, sin versi\xF3n registrada` };
   }
-  const installed = readFileSync17(versionFile, "utf-8").trim();
+  const installed = readFileSync18(versionFile, "utf-8").trim();
   if (installed !== CLI_VERSION) {
     return { status: "warn", detail: `v${installed} instalada, v${CLI_VERSION} disponible \u2014 ejecuta: dd-cli skills install` };
   }
-  const skills2 = existsSync24(skillsDir) ? readdirSync4(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
+  const skills2 = existsSync25(skillsDir) ? readdirSync4(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
   return { status: "ok", detail: `${skills2} skills \xB7 v${installed}` };
 }
 function checkStatusline() {
   const settingsPath = getClaudeGlobalSettingsPath();
-  if (!existsSync24(settingsPath)) {
+  if (!existsSync25(settingsPath)) {
     return { status: "warn", detail: `no configurada \u2014 ejecuta: dd-cli install` };
   }
   try {
-    const settings = JSON.parse(readFileSync17(settingsPath, "utf-8"));
+    const settings = JSON.parse(readFileSync18(settingsPath, "utf-8"));
     const sl = settings.statusLine;
     if (sl?.type === "command" && sl.command === "dd-cli statusline") {
       return { status: "ok", detail: `activa en ${settingsPath}` };
@@ -4323,7 +4390,7 @@ function checkClient(slug) {
   if (!entry) {
     return { slug, status: "err", issues: ["no registrado \u2014 ejecuta: dd-cli register-client"], details };
   }
-  if (!existsSync24(entry.local_cache)) {
+  if (!existsSync25(entry.local_cache)) {
     issues.push(`contexto no clonado en ${entry.local_cache}`);
   } else {
     details["contexto"] = entry.local_cache;
@@ -4481,9 +4548,9 @@ async function runHealth(opts = {}) {
 
 // src/commands/client-migrate.ts
 import { execSync as execSync5 } from "child_process";
-import { existsSync as existsSync25, readFileSync as readFileSync18, cpSync } from "fs";
-import * as path23 from "path";
-import * as yaml7 from "js-yaml";
+import { existsSync as existsSync26, readFileSync as readFileSync19, cpSync } from "fs";
+import * as path24 from "path";
+import * as yaml8 from "js-yaml";
 function runGit3(cmd, cwd) {
   return execSync5(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
 }
@@ -4532,12 +4599,12 @@ function buildStackFromLegacyMaster(slug, legacy) {
 }
 function planMigration(cacheDir, slug) {
   const steps = [];
-  const legacyMasterPath = path23.join(cacheDir, ".devflow", "config.yml");
+  const legacyMasterPath = path24.join(cacheDir, ".devflow", "config.yml");
   const stackYmlExists = hasStackConfig(cacheDir);
-  if (!stackYmlExists && existsSync25(legacyMasterPath)) {
+  if (!stackYmlExists && existsSync26(legacyMasterPath)) {
     try {
-      const raw = readFileSync18(legacyMasterPath, "utf-8");
-      const parsed = yaml7.load(raw);
+      const raw = readFileSync19(legacyMasterPath, "utf-8");
+      const parsed = yaml8.load(raw);
       if (looksLikeLegacyMasterConfig(parsed)) {
         const next = buildStackFromLegacyMaster(slug, parsed);
         StackConfigSchema.parse(next);
@@ -4555,8 +4622,8 @@ function planMigration(cacheDir, slug) {
       });
     }
   }
-  const catalogYmlExists = existsSync25(getCatalogYamlPath(cacheDir));
-  const catalogMdExists = existsSync25(getCatalogMarkdownPath(cacheDir));
+  const catalogYmlExists = existsSync26(getCatalogYamlPath(cacheDir));
+  const catalogMdExists = existsSync26(getCatalogMarkdownPath(cacheDir));
   if (!catalogYmlExists && catalogMdExists) {
     try {
       const catalog = loadCatalog(cacheDir);
@@ -4581,7 +4648,7 @@ function planMigration(cacheDir, slug) {
         type: "noop-already-migrated",
         description: "El cliente ya usa el schema nuevo \u2014 nada que migrar"
       });
-    } else if (!hasCatalog(cacheDir) && !existsSync25(legacyMasterPath)) {
+    } else if (!hasCatalog(cacheDir) && !existsSync26(legacyMasterPath)) {
       steps.push({
         type: "noop-nothing-to-migrate",
         description: "Context repo vac\xEDo o incompleto \u2014 corr\xE9 /devflow-ia:init-context primero"
@@ -4593,8 +4660,8 @@ function planMigration(cacheDir, slug) {
 function applyMigration(cacheDir, slug, steps) {
   for (const step of steps) {
     if (step.type === "create-stack-yml-from-legacy-config") {
-      const raw = readFileSync18(path23.join(cacheDir, ".devflow", "config.yml"), "utf-8");
-      const parsed = yaml7.load(raw);
+      const raw = readFileSync19(path24.join(cacheDir, ".devflow", "config.yml"), "utf-8");
+      const parsed = yaml8.load(raw);
       const next = buildStackFromLegacyMaster(slug, parsed);
       const config = StackConfigSchema.parse(next);
       saveStackConfig(cacheDir, config);
@@ -4607,7 +4674,7 @@ function applyMigration(cacheDir, slug, steps) {
 }
 function makeBackup(cacheDir, slug) {
   const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-  const backupDir = `${path23.dirname(cacheDir)}/${slug}.bak-${ts}`;
+  const backupDir = `${path24.dirname(cacheDir)}/${slug}.bak-${ts}`;
   cpSync(cacheDir, backupDir, { recursive: true });
   return backupDir;
 }
@@ -4671,7 +4738,7 @@ async function runClientMigrate(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync25(cacheDir)) {
+  if (!existsSync26(cacheDir)) {
     const err2 = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada en ${cacheDir}.`,
@@ -4753,8 +4820,8 @@ Plan de migraci\xF3n para ${slug}
 }
 
 // src/commands/client-discover.ts
-import { mkdirSync as mkdirSync14, writeFileSync as writeFileSync13 } from "fs";
-import * as path24 from "path";
+import { mkdirSync as mkdirSync15, writeFileSync as writeFileSync14 } from "fs";
+import * as path25 from "path";
 import ora from "ora";
 
 // src/discovery/pattern-detector.ts
@@ -4981,8 +5048,8 @@ async function readKeyFiles(provider, repoIdOrSlug, branch, concurrency) {
   return result;
 }
 function getDiscoveryPath(slug, override) {
-  if (override) return path24.resolve(override);
-  return path24.join(getDevflowGlobalDir(), "clients", `${slug}.discovery.json`);
+  if (override) return path25.resolve(override);
+  return path25.join(getDevflowGlobalDir(), "clients", `${slug}.discovery.json`);
 }
 async function runClientDiscover(slug, opts = {}) {
   const jsonMode = isJsonMode(opts);
@@ -5070,8 +5137,8 @@ async function runClientDiscover(slug, opts = {}) {
       discovery,
       saved_to: outPath
     };
-    mkdirSync14(path24.dirname(outPath), { recursive: true });
-    writeFileSync13(outPath, JSON.stringify(output, null, 2) + "\n", "utf-8");
+    mkdirSync15(path25.dirname(outPath), { recursive: true });
+    writeFileSync14(outPath, JSON.stringify(output, null, 2) + "\n", "utf-8");
     recordCommandResult(slug, "client discover", {
       success: true,
       state: "DISCOVERED",
@@ -5135,11 +5202,206 @@ function dimLine(s) {
   return s;
 }
 
+// src/commands/context-validate.ts
+import { existsSync as existsSync27, readdirSync as readdirSync5 } from "fs";
+import * as path26 from "path";
+function authProfilesAvailable(repoRoot) {
+  const dir = path26.join(repoRoot, ".devflow-context", "auth-profiles");
+  if (!existsSync27(dir)) return /* @__PURE__ */ new Set();
+  return new Set(
+    readdirSync5(dir).filter((f) => f.endsWith(".md") || f.endsWith(".yml")).map((f) => f.replace(/\.(md|yml)$/, ""))
+  );
+}
+function cicdProfilesAvailable(repoRoot) {
+  const dir = path26.join(repoRoot, ".devflow-context", "cicd-profiles");
+  if (!existsSync27(dir)) return /* @__PURE__ */ new Set();
+  return new Set(
+    readdirSync5(dir).filter((f) => f.endsWith(".yml")).map((f) => f.replace(/\.yml$/, ""))
+  );
+}
+function validateContextRepo(repoRoot) {
+  const findings = [];
+  if (!isContextRepo(repoRoot)) {
+    findings.push({
+      level: "err",
+      rule: "is-context-repo",
+      message: "El directorio no parece ser un context repo (no hay .devflow-context/).",
+      hint: "Corr\xE9 /devflow-ia:client-onboard para inicializarlo (Sprint 3)."
+    });
+    return findings;
+  }
+  const markerPath = getContextRepoMarkerPath(repoRoot);
+  if (!existsSync27(markerPath)) {
+    findings.push({
+      level: "warn",
+      rule: "context-repo-marker",
+      message: ".devflow-context/.context-repo.yml no encontrado (legacy).",
+      hint: "Ser\xE1 generado al pasar por /devflow-ia:client-onboard o dd-cli client publish."
+    });
+  } else {
+    try {
+      const marker = loadContextRepoMarker(repoRoot);
+      if (marker) {
+        findings.push({
+          level: "ok",
+          rule: "context-repo-marker",
+          message: `Marcador OK \u2014 cliente "${marker.client.slug}", schema v${marker.schema_version}`
+        });
+      }
+    } catch (e) {
+      findings.push({
+        level: "err",
+        rule: "context-repo-marker",
+        message: e instanceof Error ? e.message.split("\n")[0] ?? e.message : String(e),
+        hint: "Revis\xE1 el YAML del marcador."
+      });
+    }
+  }
+  if (!hasStackConfig(repoRoot)) {
+    findings.push({
+      level: "warn",
+      rule: "stack-config",
+      message: ".devflow-context/stack.yml no encontrado.",
+      hint: "Si es un context repo legacy, corr\xE9: dd-cli client migrate <slug> --apply"
+    });
+  } else {
+    try {
+      const stack = loadStackConfig(repoRoot);
+      if (stack) {
+        findings.push({
+          level: "ok",
+          rule: "stack-config",
+          message: `stack.yml OK \u2014 ${stack.stack.backend_framework} + ${stack.stack.frontend_framework}`
+        });
+      }
+    } catch (e) {
+      findings.push({
+        level: "err",
+        rule: "stack-config",
+        message: e instanceof Error ? e.message.split("\n")[0] ?? e.message : String(e),
+        hint: `Revis\xE1 ${getStackConfigPath(repoRoot)}`
+      });
+    }
+  }
+  if (!hasCatalog(repoRoot)) {
+    findings.push({
+      level: "warn",
+      rule: "catalog",
+      message: "No hay catalog.yml ni app-catalog.md",
+      hint: "Corr\xE9 /devflow-ia:init-context para poblarlo."
+    });
+  } else {
+    try {
+      const catalog = loadCatalog(repoRoot);
+      const apps = catalog?.apps ?? [];
+      findings.push({
+        level: "ok",
+        rule: "catalog",
+        message: `catalog OK \u2014 ${apps.length} apps`
+      });
+      const authAvailable = authProfilesAvailable(repoRoot);
+      const cicdAvailable = cicdProfilesAvailable(repoRoot);
+      for (const app of apps) {
+        if (app.auth_profile && !authAvailable.has(app.auth_profile)) {
+          findings.push({
+            level: "warn",
+            rule: "app-auth-ref",
+            message: `App "${app.slug}" referencia auth_profile "${app.auth_profile}" que no existe en auth-profiles/`,
+            hint: `Agreg\xE1 auth-profiles/${app.auth_profile}.md`
+          });
+        }
+        if (app.ci_cd_profile && app.ci_cd_profile !== "[por-confirmar]" && !cicdAvailable.has(app.ci_cd_profile)) {
+          findings.push({
+            level: "warn",
+            rule: "app-cicd-ref",
+            message: `App "${app.slug}" referencia ci_cd_profile "${app.ci_cd_profile}" que no existe en cicd-profiles/`,
+            hint: `Agreg\xE1 cicd-profiles/${app.ci_cd_profile}.yml`
+          });
+        }
+      }
+      if (!existsSync27(getCatalogYamlPath(repoRoot)) && existsSync27(getCatalogMarkdownPath(repoRoot))) {
+        findings.push({
+          level: "warn",
+          rule: "catalog-format",
+          message: "Cat\xE1logo en markdown legacy (app-catalog.md).",
+          hint: `Migr\xE1 a YAML can\xF3nico: dd-cli context render (o dd-cli client migrate)`
+        });
+      }
+    } catch (e) {
+      findings.push({
+        level: "err",
+        rule: "catalog",
+        message: e instanceof Error ? e.message.split("\n")[0] ?? e.message : String(e)
+      });
+    }
+  }
+  return findings;
+}
+async function runContextValidate(repoPathArg, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const repoRoot = path26.resolve(repoPathArg ?? process.cwd());
+  if (!existsSync27(repoRoot)) {
+    const err2 = {
+      code: "INVALID_INPUT",
+      message: `El path "${repoRoot}" no existe.`,
+      recovery_hints: ["Corr\xE9 desde un context repo o pas\xE1 un path v\xE1lido."]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "context validate", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  const findings = validateContextRepo(repoRoot);
+  const errors = findings.filter((f) => f.level === "err");
+  const warnings = findings.filter((f) => f.level === "warn");
+  const oks = findings.filter((f) => f.level === "ok");
+  if (jsonMode) {
+    emitJson(jsonSuccess("context validate", {
+      repo_root: repoRoot,
+      findings,
+      summary: {
+        ok: oks.length,
+        warnings: warnings.length,
+        errors: errors.length
+      },
+      passed: errors.length === 0
+    }));
+  }
+  console.log("");
+  console.log(bold(`Validaci\xF3n del context repo: ${repoRoot}`));
+  console.log("");
+  for (const f of findings) {
+    if (f.level === "ok") printOk(`  ${f.rule}: ${f.message}`);
+    else if (f.level === "warn") printWarn(`  ${f.rule}: ${f.message}`);
+    else printErr(`  ${f.rule}: ${f.message}`);
+    if (f.hint) printDim(`     \u2192 ${f.hint}`);
+  }
+  console.log("");
+  if (errors.length === 0 && warnings.length === 0) {
+    printOk("Context repo v\xE1lido.");
+  } else if (errors.length === 0) {
+    printInfo(`${oks.length} OK \xB7 ${warnings.length} warnings \xB7 0 errores`);
+  } else {
+    printErr(`${oks.length} OK \xB7 ${warnings.length} warnings \xB7 ${errors.length} errores`);
+  }
+  return errors.length === 0 ? 0 : 3;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
 program.command("init").description("Inicializa DevFlow IA en el proyecto actual (session + skills + hooks)").option("--client <slug>", "Conecta el repo a un cliente registrado y genera config.yml").option("--force", "Sobrescribe .devflow/ y settings si existen", false).option("--no-skills", "No instala las 19 skills bundleadas").option("--no-hooks", "No escribe .claude/settings.json con hooks").action(async (opts) => {
   try {
+    if (!opts.force && isContextRepo(process.cwd())) {
+      console.error("");
+      console.error("Este directorio parece ser un context repo (tiene .devflow-context/).");
+      console.error("No se debe ejecutar `dd-cli init` ac\xE1 \u2014 los context repos se generan");
+      console.error("y mantienen v\xEDa /devflow-ia:client-onboard (Sprint 3) o");
+      console.error("/devflow-ia:init-context.");
+      console.error("");
+      console.error("Si quer\xE9s validarlo en su lugar: dd-cli context validate");
+      console.error("Si quer\xE9s forzar de todos modos: dd-cli init --force");
+      process.exit(2);
+    }
     if (opts.client) {
       const exitCode = await runInitClient(opts.client);
       process.exit(exitCode);
@@ -5226,6 +5488,15 @@ clientCmd.command("migrate <slug>").description("Migra un cliente legacy al sche
   const noPush = opts.push === false;
   try {
     process.exit(await runClientMigrate(slug, { apply: opts.apply, noPush, json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+var contextCmd = program.command("context").description("Operaciones sobre context repos del cliente (validate, render, ...)");
+contextCmd.command("validate [path]").description("Valida la forma estructural del context repo (stack.yml, catalog, refs).").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (repoPath, opts) => {
+  try {
+    process.exit(await runContextValidate(repoPath, { json: opts.json }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

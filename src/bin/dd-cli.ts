@@ -25,6 +25,8 @@ import { runNewHdu } from '../commands/new-hdu-cmd.js';
 import { runHealth } from '../commands/health-cmd.js';
 import { runClientMigrate } from '../commands/client-migrate.js';
 import { runClientDiscover } from '../commands/client-discover.js';
+import { runContextValidate } from '../commands/context-validate.js';
+import { isContextRepo } from '../types/context-repo.js';
 
 const program = new Command();
 
@@ -42,6 +44,18 @@ program
   .option('--no-hooks', 'No escribe .claude/settings.json con hooks')
   .action(async (opts) => {
     try {
+      // S2-3: si estamos en un context repo, abortar con mensaje útil.
+      if (!opts.force && isContextRepo(process.cwd())) {
+        console.error('');
+        console.error('Este directorio parece ser un context repo (tiene .devflow-context/).');
+        console.error('No se debe ejecutar `dd-cli init` acá — los context repos se generan');
+        console.error('y mantienen vía /devflow-ia:client-onboard (Sprint 3) o');
+        console.error('/devflow-ia:init-context.');
+        console.error('');
+        console.error('Si querés validarlo en su lugar: dd-cli context validate');
+        console.error('Si querés forzar de todos modos: dd-cli init --force');
+        process.exit(2);
+      }
       if (opts.client) {
         // Modo --client: conectar repo a cliente + init completo
         const exitCode = await runInitClient(opts.client);
@@ -167,6 +181,21 @@ clientCmd
     // commander: `.option('--no-push')` setea opts.push = false cuando se usa --no-push
     const noPush = opts.push === false;
     try { process.exit(await runClientMigrate(slug, { apply: opts.apply, noPush, json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+// Namespace `context` — opera sobre el context repo del CWD (no sobre clientes
+// registrados). Útil para CI del context repo y precondición de `client publish`.
+const contextCmd = program
+  .command('context')
+  .description('Operaciones sobre context repos del cliente (validate, render, ...)');
+
+contextCmd
+  .command('validate [path]')
+  .description('Valida la forma estructural del context repo (stack.yml, catalog, refs).')
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (repoPath: string | undefined, opts: { json?: boolean }) => {
+    try { process.exit(await runContextValidate(repoPath, { json: opts.json })); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

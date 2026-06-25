@@ -1071,6 +1071,68 @@ function renderCatalogMarkdown(catalog) {
   return lines.join("\n");
 }
 
+// src/types/context-repo.ts
+import { z as z7 } from "zod";
+import { existsSync as existsSync10, mkdirSync as mkdirSync7, readFileSync as readFileSync8, writeFileSync as writeFileSync7 } from "fs";
+import * as path9 from "path";
+import * as yaml5 from "js-yaml";
+var ContextRepoSchema = z7.object({
+  kind: z7.literal("context-repo"),
+  schema_version: z7.string().default("1.1"),
+  client: z7.object({
+    slug: z7.string().min(1).regex(/^[a-z0-9-]+$/),
+    name: z7.string().min(1)
+  }),
+  provider: z7.object({
+    type: z7.enum(["gitlab", "github"]),
+    base_url: z7.string().url(),
+    group_or_org: z7.string().min(1)
+  }).optional(),
+  generated_by: z7.string().default("/devflow-ia:client-onboard"),
+  last_generated_at: z7.string(),
+  cli_version: z7.string(),
+  discovery_source: z7.object({
+    type: z7.literal("provider-api").default("provider-api"),
+    ref: z7.string().default("HEAD")
+  }).optional(),
+  checksums: z7.record(z7.string(), z7.string()).optional()
+});
+var MARKER_DIR = ".devflow-context";
+var MARKER_FILENAME = ".context-repo.yml";
+function getContextRepoMarkerPath(repoRoot) {
+  return path9.join(repoRoot, MARKER_DIR, MARKER_FILENAME);
+}
+function isContextRepo(repoRoot) {
+  if (existsSync10(getContextRepoMarkerPath(repoRoot))) return true;
+  const contextDir = path9.join(repoRoot, MARKER_DIR);
+  if (!existsSync10(contextDir)) return false;
+  const evidenceFiles = ["stack.yml", "catalog.yml", "app-catalog.md", "client-assessment.md"];
+  for (const f of evidenceFiles) {
+    if (existsSync10(path9.join(contextDir, f))) return true;
+  }
+  const projectConfig = path9.join(repoRoot, ".devflow", "config.yml");
+  return !existsSync10(projectConfig);
+}
+function loadContextRepoMarker(repoRoot) {
+  const p = getContextRepoMarkerPath(repoRoot);
+  if (!existsSync10(p)) return null;
+  const raw = readFileSync8(p, "utf-8");
+  const parsed = yaml5.load(raw);
+  const result = ContextRepoSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`.context-repo.yml inv\xE1lido en ${p}:
+${result.error.message}`);
+  }
+  return result.data;
+}
+function saveContextRepoMarker(repoRoot, marker) {
+  const dir = path9.join(repoRoot, MARKER_DIR);
+  if (!existsSync10(dir)) mkdirSync7(dir, { recursive: true });
+  const validated = ContextRepoSchema.parse(marker);
+  const yamlStr = yaml5.dump(validated, { indent: 2, lineWidth: 120 });
+  writeFileSync7(getContextRepoMarkerPath(repoRoot), yamlStr, "utf-8");
+}
+
 // src/providers/types.ts
 var ProviderError = class extends Error {
   constructor(message, cause) {
@@ -1464,6 +1526,7 @@ export {
   CatalogAppSchema,
   CatalogSchema,
   ClientStateSchema,
+  ContextRepoSchema,
   DEV_TYPES,
   DefaultsSchema,
   DevTypeSchema,
@@ -1500,6 +1563,7 @@ export {
   getClaudeHome,
   getClaudeSkillsDir,
   getClientStatePath,
+  getContextRepoMarkerPath,
   getDevflowDir,
   getHeartbeatLogPath,
   getProjectClaudeDir,
@@ -1514,12 +1578,14 @@ export {
   isAppOrigin,
   isBrownfield,
   isClaudeCodeInstalled,
+  isContextRepo,
   isDevFlowProject,
   isDevType,
   isJsonMode,
   jsonError,
   jsonSuccess,
   loadCatalog,
+  loadContextRepoMarker,
   loadSession,
   loadStackConfig,
   looksLikeLegacyMasterConfig,
@@ -1532,6 +1598,7 @@ export {
   requiresRepoContext,
   rulesForDevType,
   saveCatalog,
+  saveContextRepoMarker,
   saveSession,
   saveStackConfig,
   suggestedNextStep,

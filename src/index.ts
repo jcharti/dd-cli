@@ -22,6 +22,9 @@ export * from './types/stack-config.js';
 // Catalog (S1-2 / B.2 Apéndice) — YAML canónico de apps, markdown derivado.
 export * from './types/catalog.js';
 
+// ContextRepo (S2-3 / B.1 Apéndice) — marcador del context repo + auditoría.
+export * from './types/context-repo.js';
+
 // Provider abstraction (S1-8 / D-6 Parte 3) — GitLab + GitHub unificados.
 export * from './providers/types.js';
 export { GitLabProvider } from './providers/gitlab.js';

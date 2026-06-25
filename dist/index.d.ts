@@ -1139,6 +1139,123 @@ declare function parseMarkdownCatalog(content: string): CatalogApp[];
 declare function renderCatalogMarkdown(catalog: Catalog): string;
 
 /**
+ * Schema de `.devflow-context/.context-repo.yml` (S2-3 + S2-4).
+ *
+ * Marcador del context repo + metadata de auditoría. Resuelve A-3
+ * del rediseño: "Falta el contrato de context repo" — antes no había
+ * forma de distinguir un context repo de un repo de código.
+ *
+ * Apéndice B.1 del doc rediseño.
+ *
+ * Lo escribe la skill `/devflow-ia:client-onboard` (Sprint 3) y
+ * `dd-cli client publish`. Lo lee `dd-cli init` para abortar con
+ * mensaje útil si alguien intenta tratar un context repo como
+ * repo de código. Lo lee `dd-cli context validate` para auditoría.
+ */
+
+declare const ContextRepoSchema: z.ZodObject<{
+    kind: z.ZodLiteral<"context-repo">;
+    schema_version: z.ZodDefault<z.ZodString>;
+    client: z.ZodObject<{
+        slug: z.ZodString;
+        name: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        slug: string;
+    }, {
+        name: string;
+        slug: string;
+    }>;
+    provider: z.ZodOptional<z.ZodObject<{
+        type: z.ZodEnum<["gitlab", "github"]>;
+        base_url: z.ZodString;
+        group_or_org: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        type: "gitlab" | "github";
+        base_url: string;
+        group_or_org: string;
+    }, {
+        type: "gitlab" | "github";
+        base_url: string;
+        group_or_org: string;
+    }>>;
+    generated_by: z.ZodDefault<z.ZodString>;
+    last_generated_at: z.ZodString;
+    cli_version: z.ZodString;
+    discovery_source: z.ZodOptional<z.ZodObject<{
+        type: z.ZodDefault<z.ZodLiteral<"provider-api">>;
+        ref: z.ZodDefault<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        type: "provider-api";
+        ref: string;
+    }, {
+        type?: "provider-api" | undefined;
+        ref?: string | undefined;
+    }>>;
+    checksums: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+}, "strip", z.ZodTypeAny, {
+    cli_version: string;
+    schema_version: string;
+    client: {
+        name: string;
+        slug: string;
+    };
+    kind: "context-repo";
+    generated_by: string;
+    last_generated_at: string;
+    provider?: {
+        type: "gitlab" | "github";
+        base_url: string;
+        group_or_org: string;
+    } | undefined;
+    discovery_source?: {
+        type: "provider-api";
+        ref: string;
+    } | undefined;
+    checksums?: Record<string, string> | undefined;
+}, {
+    cli_version: string;
+    client: {
+        name: string;
+        slug: string;
+    };
+    kind: "context-repo";
+    last_generated_at: string;
+    schema_version?: string | undefined;
+    provider?: {
+        type: "gitlab" | "github";
+        base_url: string;
+        group_or_org: string;
+    } | undefined;
+    generated_by?: string | undefined;
+    discovery_source?: {
+        type?: "provider-api" | undefined;
+        ref?: string | undefined;
+    } | undefined;
+    checksums?: Record<string, string> | undefined;
+}>;
+type ContextRepoMarker = z.infer<typeof ContextRepoSchema>;
+declare function getContextRepoMarkerPath(repoRoot: string): string;
+/**
+ * Detecta si un directorio es un context repo.
+ *
+ * Lógica (orden):
+ *   1. Marcador canónico: `.devflow-context/.context-repo.yml`.
+ *   2. Forma post-migración (S1-10): existe `.devflow-context/stack.yml` —
+ *      sin importar qué tenga `.devflow/config.yml` (puede tener el master
+ *      legacy todavía por backward-compat).
+ *   3. Forma pre-migración: hay `.devflow-context/app-catalog.md` o `catalog.yml`.
+ *   4. Heurística legacy pura: tiene `.devflow-context/` y no hay
+ *      `.devflow/config.yml` (típico cuando solo se corrió `init-context` viejo
+ *      sin `init` previo).
+ *
+ * Usá esto para que `dd-cli init` aborte con mensaje útil.
+ */
+declare function isContextRepo(repoRoot: string): boolean;
+declare function loadContextRepoMarker(repoRoot: string): ContextRepoMarker | null;
+declare function saveContextRepoMarker(repoRoot: string, marker: ContextRepoMarker): void;
+
+/**
  * GitProvider — abstracción provider-agnóstica (D-6 Parte 3 del rediseño).
  *
  * Soporta GitLab (cloud + self-hosted) y GitHub (cloud + Enterprise) detrás
@@ -1391,4 +1508,4 @@ declare function inferProviderType(host: GitHost | undefined, baseUrl: string): 
 
 declare const CLI_VERSION = "0.5.1";
 
-export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, ClientStateSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasCatalog, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadCatalog, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, parseMarkdownCatalog, partition, readClientState, recordCommandResult, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, saveCatalog, saveSession, saveStackConfig, suggestedNextStep, updateClientState, writeClientState };
+export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, hasCatalog, hasSession, hasStackConfig, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadCatalog, loadContextRepoMarker, loadSession, loadStackConfig, looksLikeLegacyMasterConfig, parseMarkdownCatalog, partition, readClientState, recordCommandResult, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, saveCatalog, saveContextRepoMarker, saveSession, saveStackConfig, suggestedNextStep, updateClientState, writeClientState };
