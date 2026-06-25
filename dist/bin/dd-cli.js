@@ -1116,6 +1116,388 @@ function parseMarkdownCatalog(content) {
   return apps;
 }
 
+// src/providers/types.ts
+var ProviderError = class extends Error {
+  constructor(message, cause) {
+    super(message);
+    this.cause = cause;
+    this.name = "ProviderError";
+  }
+  cause;
+};
+var NotImplementedError = class extends ProviderError {
+  constructor(provider, feature) {
+    super(`${provider}: ${feature} no est\xE1 implementado todav\xEDa (Sprint 3)`, { provider });
+    this.name = "NotImplementedError";
+  }
+};
+
+// src/providers/gitlab.ts
+var GitLabProvider = class {
+  type = "gitlab";
+  base_url;
+  group_or_org;
+  token;
+  constructor(opts) {
+    this.base_url = opts.base_url.replace(/\/$/, "");
+    this.group_or_org = opts.group;
+    this.token = opts.token;
+  }
+  // ── HTTP helpers ──────────────────────────────────────────────────
+  async request(endpoint, params = {}, init) {
+    const url = new URL(`${this.base_url}/api/v4/${endpoint}`);
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    const response = await fetch(url.toString(), {
+      ...init,
+      headers: {
+        "PRIVATE-TOKEN": this.token,
+        "Content-Type": "application/json",
+        ...init?.headers ?? {}
+      }
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new ProviderError(
+        `GitLab API ${response.status} en ${endpoint}: ${body.slice(0, 300)}`,
+        { provider: "gitlab", status: response.status, body }
+      );
+    }
+    return response.json();
+  }
+  // ── validateToken ─────────────────────────────────────────────────
+  /**
+   * Mapeo de operación → scopes mínimos requeridos (sección 4.7).
+   * GitLab `api` incluye casi todo; `read_api` es solo lectura.
+   */
+  requiredScopesFor(op) {
+    switch (op) {
+      case "read":
+        return ["read_api"];
+      case "write":
+        return ["api"];
+      case "create_repo":
+        return ["api"];
+      case "branch_protection":
+        return ["api"];
+      case "webhook":
+        return ["api"];
+    }
+  }
+  async validateToken(opts = {}) {
+    let user = null;
+    let scopes_present = [];
+    let is_admin_of_group = null;
+    let message = "";
+    try {
+      const tokenInfo = await this.request("personal_access_tokens/self");
+      scopes_present = tokenInfo.scopes ?? [];
+      if (tokenInfo.user_id) {
+        const userResp = await this.request(`users/${tokenInfo.user_id}`);
+        user = userResp.username ?? null;
+      }
+      message = "Token v\xE1lido";
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        valid: false,
+        user: null,
+        scopes_present: [],
+        scopes_missing: [],
+        is_admin_of_group: null,
+        message: `Token inv\xE1lido o sin acceso a la API: ${msg}`
+      };
+    }
+    try {
+      const groupResp = await this.request(`groups/${encodeURIComponent(this.group_or_org)}`);
+      if (groupResp.full_path) {
+        try {
+          const members = await this.request(
+            `groups/${encodeURIComponent(this.group_or_org)}/members/all`,
+            { query: user ?? "" }
+          );
+          const me = members.find((m) => m.username === user);
+          if (me) is_admin_of_group = me.access_level >= 40;
+        } catch {
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      message = `Token v\xE1lido pero sin acceso al group ${this.group_or_org}: ${msg}`;
+    }
+    const required = /* @__PURE__ */ new Set();
+    for (const op of opts.required_for ?? []) {
+      for (const s of this.requiredScopesFor(op)) required.add(s);
+    }
+    const scopes_missing = [...required].filter((s) => !scopes_present.includes(s));
+    return {
+      valid: true,
+      user,
+      scopes_present,
+      scopes_missing,
+      is_admin_of_group,
+      message
+    };
+  }
+  // ── listGroupRepos ────────────────────────────────────────────────
+  async listGroupRepos() {
+    const encodedGroup = encodeURIComponent(this.group_or_org);
+    const projects = await this.request(
+      `groups/${encodedGroup}/projects`,
+      {
+        per_page: "100",
+        include_subgroups: "true",
+        with_shared: "false",
+        order_by: "last_activity_at",
+        sort: "desc"
+      }
+    );
+    return projects.map((p) => ({
+      id: p["id"],
+      slug: p["path"] ?? "",
+      name: p["name"] ?? "",
+      description: p["description"] ?? "",
+      url: p["http_url_to_repo"] ?? "",
+      ssh_url: p["ssh_url_to_repo"] ?? "",
+      default_branch: p["default_branch"] ?? "main",
+      last_push: p["last_activity_at"] ?? "",
+      language: null,
+      size_kb: p["statistics"]?.["repository_size"] ?? 0,
+      topics: p["topics"] ?? [],
+      archived: p["archived"] ?? false,
+      ci_config_path: p["ci_config_path"] ?? null
+    }));
+  }
+  // ── readFile / readFirstFound ─────────────────────────────────────
+  async readFile(repoIdOrSlug, filePath, ref = "main") {
+    try {
+      const encoded = encodeURIComponent(filePath);
+      const data = await this.request(
+        `projects/${repoIdOrSlug}/repository/files/${encoded}`,
+        { ref }
+      );
+      const content = Buffer.from(data["content"] ?? "", "base64").toString("utf-8");
+      return { path: filePath, content, found: true };
+    } catch {
+      return { path: filePath, content: "", found: false };
+    }
+  }
+  async readFirstFound(repoIdOrSlug, candidates, ref = "main") {
+    for (const candidate of candidates) {
+      const result = await this.readFile(repoIdOrSlug, candidate, ref);
+      if (result.found) return result;
+    }
+    return { path: candidates[0] ?? "", content: "", found: false };
+  }
+  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
+  async createRepo(_opts) {
+    throw new NotImplementedError("gitlab", "createRepo");
+  }
+  async setBranchProtection(_repo, _rules) {
+    throw new NotImplementedError("gitlab", "setBranchProtection");
+  }
+  async createPullRequest(_repo, _opts) {
+    throw new NotImplementedError("gitlab", "createPullRequest (createMergeRequest)");
+  }
+  async configureWebhook(_repo, _opts) {
+    throw new NotImplementedError("gitlab", "configureWebhook");
+  }
+};
+
+// src/providers/github.ts
+var GitHubProvider = class {
+  type = "github";
+  base_url;
+  group_or_org;
+  token;
+  constructor(opts) {
+    this.base_url = opts.base_url.replace(/\/$/, "");
+    this.group_or_org = opts.org;
+    this.token = opts.token;
+  }
+  // ── HTTP helpers ──────────────────────────────────────────────────
+  async request(endpoint, params = {}, init) {
+    const url = new URL(`${this.base_url}/${endpoint}`);
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    const response = await fetch(url.toString(), {
+      ...init,
+      headers: {
+        "Authorization": `Bearer ${this.token}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...init?.headers ?? {}
+      }
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new ProviderError(
+        `GitHub API ${response.status} en ${endpoint}: ${body.slice(0, 300)}`,
+        { provider: "github", status: response.status, body }
+      );
+    }
+    return { json: await response.json(), headers: response.headers };
+  }
+  // ── validateToken ─────────────────────────────────────────────────
+  /**
+   * GitHub Classic PAT: la API devuelve scopes en el header `x-oauth-scopes`.
+   * Fine-grained PAT: el header viene vacío (los permisos son por-repo),
+   * en ese caso reportamos `scopes_present: []` y dejamos que el caller
+   * intente la operación — fallará con 403 si no tiene permiso.
+   */
+  requiredScopesFor(op) {
+    switch (op) {
+      case "read":
+        return ["repo"];
+      // o public_repo si público
+      case "write":
+        return ["repo"];
+      case "create_repo":
+        return ["repo"];
+      case "branch_protection":
+        return ["repo"];
+      case "webhook":
+        return ["admin:repo_hook"];
+    }
+  }
+  async validateToken(opts = {}) {
+    let user = null;
+    let scopes_present = [];
+    let is_admin_of_group = null;
+    let message = "";
+    try {
+      const { json, headers } = await this.request("user");
+      const u = json;
+      user = u.login ?? null;
+      const scopeHeader = headers.get("x-oauth-scopes") ?? "";
+      scopes_present = scopeHeader.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+      message = scopeHeader === "" ? "Token v\xE1lido (fine-grained PAT \u2014 scopes por-repo)" : "Token v\xE1lido";
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        valid: false,
+        user: null,
+        scopes_present: [],
+        scopes_missing: [],
+        is_admin_of_group: null,
+        message: `Token inv\xE1lido o sin acceso a la API: ${msg}`
+      };
+    }
+    if (user) {
+      try {
+        const { json } = await this.request(`orgs/${this.group_or_org}/memberships/${user}`);
+        const membership = json;
+        is_admin_of_group = membership.role === "admin" && membership.state === "active";
+      } catch {
+      }
+    }
+    const required = /* @__PURE__ */ new Set();
+    for (const op of opts.required_for ?? []) {
+      for (const s of this.requiredScopesFor(op)) required.add(s);
+    }
+    const scopes_missing = scopes_present.length === 0 ? [] : [...required].filter((s) => !scopes_present.includes(s));
+    return {
+      valid: true,
+      user,
+      scopes_present,
+      scopes_missing,
+      is_admin_of_group,
+      message
+    };
+  }
+  // ── listGroupRepos ────────────────────────────────────────────────
+  async listGroupRepos() {
+    const { json } = await this.request(
+      `orgs/${this.group_or_org}/repos`,
+      { per_page: "100", sort: "pushed", direction: "desc" }
+    );
+    const repos = json;
+    return repos.map((r) => ({
+      id: r["id"],
+      slug: r["name"] ?? "",
+      name: r["full_name"] ?? "",
+      description: r["description"] ?? "",
+      url: r["clone_url"] ?? "",
+      ssh_url: r["ssh_url"] ?? "",
+      default_branch: r["default_branch"] ?? "main",
+      last_push: r["pushed_at"] ?? "",
+      language: r["language"] ?? null,
+      size_kb: r["size"] ?? 0,
+      topics: r["topics"] ?? [],
+      archived: r["archived"] ?? false,
+      ci_config_path: null
+    }));
+  }
+  // ── readFile / readFirstFound ─────────────────────────────────────
+  async readFile(repoIdOrSlug, filePath, ref = "main") {
+    try {
+      const { json } = await this.request(
+        `repos/${this.group_or_org}/${repoIdOrSlug}/contents/${filePath}`,
+        { ref }
+      );
+      const data = json;
+      const content = Buffer.from(data["content"] ?? "", "base64").toString("utf-8");
+      return { path: filePath, content, found: true };
+    } catch {
+      return { path: filePath, content: "", found: false };
+    }
+  }
+  async readFirstFound(repoIdOrSlug, candidates, ref = "main") {
+    for (const candidate of candidates) {
+      const result = await this.readFile(repoIdOrSlug, candidate, ref);
+      if (result.found) return result;
+    }
+    return { path: candidates[0] ?? "", content: "", found: false };
+  }
+  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
+  async createRepo(_opts) {
+    throw new NotImplementedError("github", "createRepo");
+  }
+  async setBranchProtection(_repo, _rules) {
+    throw new NotImplementedError("github", "setBranchProtection");
+  }
+  async createPullRequest(_repo, _opts) {
+    throw new NotImplementedError("github", "createPullRequest");
+  }
+  async configureWebhook(_repo, _opts) {
+    throw new NotImplementedError("github", "configureWebhook");
+  }
+};
+
+// src/providers/factory.ts
+function createProvider(creds, overrides = {}) {
+  const type = overrides.type ?? inferProviderType(creds.git_host, creds.git_base_url);
+  const base_url = overrides.base_url ?? defaultBaseUrlFor(type, creds.git_base_url);
+  const group_or_org = overrides.group_or_org ?? creds.git_group;
+  switch (type) {
+    case "gitlab":
+      return new GitLabProvider({
+        base_url,
+        group: group_or_org,
+        token: creds.git_token
+      });
+    case "github":
+      return new GitHubProvider({
+        base_url,
+        org: group_or_org,
+        token: creds.git_token
+      });
+  }
+}
+function inferProviderType(host, baseUrl) {
+  if (host === "github") return "github";
+  if (host === "gitlab") return "gitlab";
+  if (/github/i.test(baseUrl)) return "github";
+  return "gitlab";
+}
+function defaultBaseUrlFor(type, raw) {
+  if (type === "gitlab") return raw;
+  if (/^https?:\/\/(www\.)?github\.com\/?$/i.test(raw)) {
+    return "https://api.github.com";
+  }
+  if (/\/api\/v\d/.test(raw)) return raw;
+  if (/github/i.test(raw)) return `${raw.replace(/\/$/, "")}/api/v3`;
+  return raw;
+}
+
 // src/index.ts
 var CLI_VERSION = "0.5.1";
 
@@ -1851,6 +2233,9 @@ function saveCredentials(creds) {
     chmodSync(p, 384);
   } catch {
   }
+}
+function getClientCredentials(slug) {
+  return loadCredentials().clients[slug] ?? null;
 }
 function setClientCredentials(slug, creds) {
   const all = loadCredentials();
@@ -2872,8 +3257,8 @@ function syncCache(slug, contextUrl) {
   const cacheDir = getClientCacheDir(slug);
   try {
     if (!existsSync17(cacheDir)) {
-      const { mkdirSync: mkdirSync14 } = __require("fs");
-      mkdirSync14(path16.dirname(cacheDir), { recursive: true });
+      const { mkdirSync: mkdirSync15 } = __require("fs");
+      mkdirSync15(path16.dirname(cacheDir), { recursive: true });
       execSync2(`git clone "${contextUrl}" "${cacheDir}"`, { stdio: "pipe" });
     } else {
       execSync2("git pull", { cwd: cacheDir, stdio: "pipe" });
@@ -3501,11 +3886,11 @@ async function runWatch(opts = {}) {
   };
   render();
   const timer = setInterval(render, interval);
-  await new Promise((resolve5) => {
+  await new Promise((resolve6) => {
     process.on("SIGINT", () => {
       clearInterval(timer);
       cleanup();
-      resolve5();
+      resolve6();
     });
   });
 }
@@ -4367,6 +4752,389 @@ Plan de migraci\xF3n para ${slug}
   }
 }
 
+// src/commands/client-discover.ts
+import { mkdirSync as mkdirSync14, writeFileSync as writeFileSync13 } from "fs";
+import * as path24 from "path";
+import ora from "ora";
+
+// src/discovery/pattern-detector.ts
+function detectStack(files) {
+  const pkg = files["package.json"];
+  const composer = files["composer.json"];
+  const pom = files["pom.xml"];
+  const requirements = files["requirements.txt"];
+  const gemfile = files["Gemfile"];
+  if (pkg?.found) {
+    try {
+      const json = JSON.parse(pkg.content);
+      const deps = { ...json.dependencies, ...json.devDependencies };
+      const scripts = json.scripts ?? {};
+      const enginesNode = json.engines?.node ?? null;
+      let framework = null;
+      if (deps["@nestjs/core"]) framework = "nestjs";
+      else if (deps["express"]) framework = "express";
+      else if (deps["fastify"]) framework = "fastify";
+      else if (deps["@angular/core"]) framework = "angular";
+      else if (deps["react"]) framework = "react";
+      else if (deps["next"]) framework = "nextjs";
+      else if (deps["vue"]) framework = "vue";
+      let db = null;
+      if (deps["typeorm"] || deps["@nestjs/typeorm"]) db = "typeorm";
+      if (deps["pg"] || deps["pg-promise"]) db = db ? `${db}+postgresql` : "postgresql";
+      if (deps["oracledb"]) db = db ? `${db}+oracle` : "oracle";
+      if (deps["mysql2"] || deps["mysql"]) db = db ? `${db}+mysql` : "mysql";
+      if (deps["mongoose"] || deps["mongodb"]) db = db ? `${db}+mongodb` : "mongodb";
+      return {
+        language: "typescript/javascript",
+        framework,
+        db,
+        node_version: enginesNode,
+        php_version: null
+      };
+    } catch {
+    }
+  }
+  if (composer?.found) {
+    try {
+      const json = JSON.parse(composer.content);
+      const require2 = json.require ?? {};
+      let framework = null;
+      if (require2["laravel/framework"]) framework = "laravel";
+      else if (require2["symfony/symfony"]) framework = "symfony";
+      let db = null;
+      if (framework === "laravel") db = "eloquent";
+      const phpVersion = json.require?.["php"]?.replace(/[^0-9.]/g, "") ?? null;
+      return { language: "php", framework, db, node_version: null, php_version: phpVersion };
+    } catch {
+    }
+  }
+  if (pom?.found) {
+    const hasSpring = pom.content.includes("spring-boot");
+    return {
+      language: "java",
+      framework: hasSpring ? "spring-boot" : "java",
+      db: pom.content.includes("postgresql") ? "postgresql" : null,
+      node_version: null,
+      php_version: null
+    };
+  }
+  if (requirements?.found) {
+    const hasDjango = requirements.content.includes("Django");
+    const hasFastAPI = requirements.content.includes("fastapi");
+    return {
+      language: "python",
+      framework: hasFastAPI ? "fastapi" : hasDjango ? "django" : null,
+      db: requirements.content.includes("psycopg") ? "postgresql" : null,
+      node_version: null,
+      php_version: null
+    };
+  }
+  if (gemfile?.found) {
+    const hasRails = gemfile.content.includes("'rails'");
+    return { language: "ruby", framework: hasRails ? "rails" : null, db: null, node_version: null, php_version: null };
+  }
+  return { language: null, framework: null, db: null, node_version: null, php_version: null };
+}
+function detectAuth(files, repoSlug) {
+  const allContent = Object.values(files).map((f) => f.content).join("\n").toLowerCase();
+  if (allContent.includes("messagebus") || allContent.includes("postmessage") || allContent.includes("portal-bridge") || allContent.includes("portalauthservice")) {
+    return "portal-embedded";
+  }
+  if (allContent.includes("keycloak") || allContent.includes("azure-ad") || allContent.includes("auth0") || allContent.includes("openidconnect") || allContent.includes("oauth2") || allContent.includes("oidc")) {
+    return "oauth2-oidc";
+  }
+  if (allContent.includes("jsonwebtoken") || allContent.includes("jwtservice") || allContent.includes("@nestjs/jwt") || allContent.includes("jwt_secret") || allContent.includes("passport-jwt") || allContent.includes("tymon/jwt-auth")) {
+    return "custom-jwt";
+  }
+  if (allContent.includes("x-api-key") || allContent.includes("apikey") || allContent.includes("api-key-guard") || allContent.includes("apikeyguard")) {
+    return "api-key-internal";
+  }
+  if (repoSlug.includes("landing") || repoSlug.includes("docs") || repoSlug.includes("static") || repoSlug.includes("public")) {
+    return "none-public";
+  }
+  return "unknown";
+}
+function detectCiStages(ciFile) {
+  if (!ciFile.found) return [];
+  const stageMatch = ciFile.content.match(/^stages:\s*\n((?:\s+-\s+\S+\n?)+)/m);
+  if (!stageMatch) return [];
+  return (stageMatch[1] ?? "").split("\n").map((l) => l.replace(/^\s+-\s+/, "").trim()).filter(Boolean);
+}
+function detectK8sNamespace(ciFile) {
+  if (!ciFile.found) return null;
+  const match = ciFile.content.match(/NAMESPACE[:\s=]+["']?([a-z0-9-]+)["']?/i);
+  return match?.[1] ?? null;
+}
+function detectAppType(files, stack, repoSlug) {
+  const pkg = files["package.json"];
+  if (pkg?.found) {
+    try {
+      const json = JSON.parse(pkg.content);
+      const deps = { ...json.dependencies, ...json.devDependencies };
+      if (deps["single-spa"] || deps["@angular-architects/module-federation"]) return "frontend-mfe";
+      if (stack.framework === "angular" || stack.framework === "react" || stack.framework === "vue") return "frontend-app";
+      if (stack.framework === "nestjs" && repoSlug.includes("bff")) return "bff";
+      if (stack.framework === "nestjs") return repoSlug.includes("api") ? "api-rest" : "microservice";
+    } catch {
+    }
+  }
+  if (stack.framework === "laravel") return repoSlug.includes("api") ? "api-rest" : "microservice";
+  if (stack.framework === "spring-boot") return "microservice";
+  if (repoSlug.includes("worker") || repoSlug.includes("job") || repoSlug.includes("cron")) return "worker";
+  return "microservice";
+}
+function analyzeRepo(meta, files) {
+  const stack = detectStack(files);
+  const auth = detectAuth(files, meta.slug);
+  const ciFile = files[".gitlab-ci.yml"] ?? files[".github/workflows/ci.yml"] ?? { path: "", content: "", found: false };
+  const ciStages = detectCiStages(ciFile);
+  const k8sNamespace = detectK8sNamespace(ciFile);
+  const appType = detectAppType(files, stack, meta.slug);
+  const lastPushDate = meta.last_push ? new Date(meta.last_push) : null;
+  const lastActiveDays = lastPushDate ? Math.floor((Date.now() - lastPushDate.getTime()) / 864e5) : 9999;
+  const isTemplate = /template|base|starter|scaffold/i.test(meta.slug);
+  const isPortalShell = meta.slug.includes("shell") || meta.slug.includes("portal") || (files["package.json"]?.content ?? "").includes("single-spa");
+  const isMfe = appType === "frontend-mfe" || meta.slug.includes("mfe");
+  return {
+    slug: meta.slug,
+    display_name: meta.name,
+    stack,
+    app_type: appType,
+    app_origin: lastActiveDays < 180 && !meta.archived ? "legacy-app" : "legacy-app",
+    // siempre legacy hasta confirmar
+    auth_pattern: auth,
+    is_template: isTemplate,
+    is_portal_shell: isPortalShell,
+    is_mfe: isMfe,
+    ci_stages: ciStages,
+    k8s_namespace: k8sNamespace,
+    last_active_days: lastActiveDays,
+    inactive: lastActiveDays > 365 || meta.archived
+  };
+}
+function synthesizeDiscovery(analyses) {
+  const active = analyses.filter((a) => !a.inactive);
+  const inactive = analyses.filter((a) => a.inactive);
+  const authPatterns = [...new Set(active.map((a) => a.auth_pattern).filter((p) => p !== "unknown"))];
+  const templates = active.filter((a) => a.is_template).map((a) => a.slug);
+  const portal = active.find((a) => a.is_portal_shell)?.slug ?? null;
+  const mfes = active.filter((a) => a.is_mfe).map((a) => a.slug);
+  const dbs = [...new Set(active.map((a) => a.stack.db).filter(Boolean))];
+  const withCi = active.filter((a) => a.ci_stages.length > 0);
+  const ciTemplate = withCi.length > 0 ? withCi[0]?.ci_stages.join(" \u2192 ") ?? null : null;
+  const summary = [
+    `Encontr\xE9 ${analyses.length} repos en total (${active.length} activos, ${inactive.length} sin actividad en >1 a\xF1o).`,
+    authPatterns.length > 0 ? `Patrones de auth detectados: ${authPatterns.join(", ")}.` : "",
+    templates.length > 0 ? `Templates base identificados: ${templates.join(", ")}.` : "",
+    portal ? `Portal shell principal: ${portal}.` : "",
+    mfes.length > 0 ? `Microfrontends: ${mfes.length} (${mfes.slice(0, 3).join(", ")}${mfes.length > 3 ? "..." : ""}).` : "",
+    dbs.length > 0 ? `Bases de datos: ${dbs.join(", ")}.` : ""
+  ].filter(Boolean).join(" ");
+  return {
+    repos: analyses,
+    auth_profiles_detected: authPatterns,
+    templates_detected: templates,
+    portal_shell: portal,
+    mfes,
+    ci_template: ciTemplate,
+    dbs_detected: dbs,
+    active_repos: active.length,
+    inactive_repos: inactive.length,
+    summary
+  };
+}
+
+// src/commands/client-discover.ts
+var DISCOVERY_FILES = [
+  // stack
+  "package.json",
+  "composer.json",
+  "pom.xml",
+  "requirements.txt",
+  "Gemfile",
+  // ci/cd
+  ".gitlab-ci.yml",
+  ".github/workflows/ci.yml",
+  // auth detection necesita ver código, pero leer todo es caro;
+  // tomamos config/sso.php y src/auth/index.ts como muestras representativas
+  "config/sso.php",
+  "config/auth.php",
+  "src/auth/index.ts",
+  "src/main.ts",
+  "app/Http/Kernel.php"
+];
+async function readKeyFiles(provider, repoIdOrSlug, branch, concurrency) {
+  const result = {};
+  const queue = [...DISCOVERY_FILES];
+  async function worker() {
+    while (queue.length > 0) {
+      const file = queue.shift();
+      if (!file) return;
+      try {
+        result[file] = await provider.readFile(repoIdOrSlug, file, branch);
+      } catch {
+        result[file] = { path: file, content: "", found: false };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return result;
+}
+function getDiscoveryPath(slug, override) {
+  if (override) return path24.resolve(override);
+  return path24.join(getDevflowGlobalDir(), "clients", `${slug}.discovery.json`);
+}
+async function runClientDiscover(slug, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!slug) {
+    const err2 = {
+      code: "INVALID_INPUT",
+      message: "Falta el slug. Uso: dd-cli client discover <slug>",
+      recovery_hints: ["List\xE1 clientes registrados: dd-cli health"]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client discover", ...err2 }));
+    printErr(err2.message);
+    return 3;
+  }
+  const entry = getClient(slug);
+  if (!entry) {
+    const err2 = {
+      code: "CLIENT_NOT_REGISTERED",
+      message: `Cliente "${slug}" no registrado.`,
+      context: { slug },
+      recovery_hints: [
+        `Registr\xE1 el cliente: dd-cli register-client ${slug} --context-url=<url> --git-token=<PAT> --git-group=<grupo>`
+      ],
+      next_safe_command: `dd-cli register-client ${slug} --context-url=<url>`
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client discover", ...err2 }));
+    printErr(err2.message);
+    return 2;
+  }
+  const creds = getClientCredentials(slug);
+  if (!creds) {
+    const err2 = {
+      code: "TOKEN_MISSING",
+      message: `No hay credenciales API para "${slug}".`,
+      context: { slug },
+      recovery_hints: [
+        `Agreg\xE1 las credenciales: dd-cli register-client ${slug} --context-url=${entry.context_url} --git-token=<PAT> --git-group=<grupo> --force`
+      ],
+      next_safe_command: `dd-cli register-client ${slug} --git-token=<PAT> --git-group=<grupo> --force`
+    };
+    if (jsonMode) emitJson(jsonError({ command: "client discover", ...err2 }));
+    printErr(err2.message);
+    return 2;
+  }
+  const provider = createProvider(creds);
+  const concurrency = Math.max(1, Math.min(opts.concurrency ?? 5, 20));
+  const outPath = getDiscoveryPath(slug, opts.out);
+  const spinner = jsonMode ? null : ora({ text: `Analizando repos de ${provider.type}/${provider.group_or_org} ...`, isSilent: false }).start();
+  try {
+    const tokenCheck = await provider.validateToken({ required_for: ["read"] });
+    if (!tokenCheck.valid) {
+      spinner?.fail("Token inv\xE1lido");
+      const err2 = {
+        code: "TOKEN_INVALID",
+        message: tokenCheck.message,
+        context: { provider: provider.type, user: tokenCheck.user },
+        recovery_hints: [
+          `Regener\xE1 el token: dd-cli register-client ${slug} --git-token=<nuevo> --force`
+        ]
+      };
+      recordCommandResult(slug, "client discover", { success: false, error: err2 });
+      if (jsonMode) emitJson(jsonError({ command: "client discover", ...err2 }));
+      printErr(tokenCheck.message);
+      return 1;
+    }
+    const repos = await provider.listGroupRepos();
+    if (spinner) spinner.text = `Encontrados ${repos.length} repos. Analizando archivos clave ...`;
+    const candidates = opts.activeOnly ? repos.filter((r) => !r.archived) : repos;
+    const analyses = [];
+    let processed = 0;
+    for (const meta of candidates) {
+      const lastPushDate = meta.last_push ? new Date(meta.last_push) : null;
+      const lastActiveDays = lastPushDate ? Math.floor((Date.now() - lastPushDate.getTime()) / 864e5) : 9999;
+      const veryInactive = meta.archived || lastActiveDays > 365;
+      const files = veryInactive ? {} : await readKeyFiles(provider, identifierFor(provider, meta), meta.default_branch, concurrency);
+      analyses.push(analyzeRepo(meta, files));
+      processed++;
+      if (spinner) spinner.text = `Analizando repos ... ${processed}/${candidates.length}`;
+    }
+    const discovery = synthesizeDiscovery(analyses);
+    const output = {
+      slug,
+      provider: provider.type,
+      group_or_org: provider.group_or_org,
+      generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+      discovery,
+      saved_to: outPath
+    };
+    mkdirSync14(path24.dirname(outPath), { recursive: true });
+    writeFileSync13(outPath, JSON.stringify(output, null, 2) + "\n", "utf-8");
+    recordCommandResult(slug, "client discover", {
+      success: true,
+      state: "DISCOVERED",
+      nextSafe: `dd-cli client migrate ${slug} --apply  # si es legacy`
+    });
+    spinner?.succeed(`Discovery completo (${analyses.length} repos)`);
+    if (jsonMode) {
+      emitJson(jsonSuccess("client discover", output, `dd-cli client migrate ${slug}`));
+    }
+    console.log("");
+    console.log(bold(`Discovery para ${slug}`));
+    console.log(dimLine(`  Provider:     ${provider.type} @ ${provider.base_url}`));
+    console.log(dimLine(`  Group/Org:    ${provider.group_or_org}`));
+    console.log(dimLine(`  Repos:        ${discovery.repos.length} total \xB7 ${discovery.active_repos} activos \xB7 ${discovery.inactive_repos} inactivos`));
+    if (discovery.auth_profiles_detected.length > 0) {
+      console.log(dimLine(`  Auth:         ${discovery.auth_profiles_detected.join(", ")}`));
+    }
+    if (discovery.templates_detected.length > 0) {
+      console.log(dimLine(`  Templates:    ${discovery.templates_detected.join(", ")}`));
+    }
+    if (discovery.portal_shell) {
+      console.log(dimLine(`  Portal shell: ${discovery.portal_shell}`));
+    }
+    if (discovery.mfes.length > 0) {
+      console.log(dimLine(`  MFEs:         ${discovery.mfes.length} (${discovery.mfes.slice(0, 5).join(", ")}${discovery.mfes.length > 5 ? "..." : ""})`));
+    }
+    if (discovery.dbs_detected.length > 0) {
+      console.log(dimLine(`  DBs:          ${discovery.dbs_detected.join(", ")}`));
+    }
+    console.log("");
+    printInfo(`JSON guardado: ${outPath}`);
+    printDim("  Consumible por skills, CI y la app web futura.");
+    console.log("");
+    printInfo("Pr\xF3ximo paso:");
+    printDim(`  dd-cli client migrate ${slug}      # si tiene contexto legacy`);
+    printDim(`  /devflow-ia:client-onboard         # publicar context repo nuevo (Sprint 3)`);
+    return 0;
+  } catch (e) {
+    spinner?.fail("Discovery fall\xF3");
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const err2 = {
+      code: "NETWORK_ERROR",
+      message: `Error durante discovery: ${errMsg}`,
+      context: { slug, provider: provider.type },
+      recovery_hints: [
+        "Verific\xE1 conectividad y validez del token",
+        `Valid\xE1 scopes: dd-cli health --check-api --client=${slug}`
+      ]
+    };
+    recordCommandResult(slug, "client discover", { success: false, error: err2 });
+    if (jsonMode) emitJson(jsonError({ command: "client discover", ...err2 }));
+    printErr(err2.message);
+    return 1;
+  }
+}
+function identifierFor(provider, meta) {
+  if (provider.type === "gitlab") return meta.id;
+  return meta.slug;
+}
+function dimLine(s) {
+  return s;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -4458,6 +5226,14 @@ clientCmd.command("migrate <slug>").description("Migra un cliente legacy al sche
   const noPush = opts.push === false;
   try {
     process.exit(await runClientMigrate(slug, { apply: opts.apply, noPush, json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+clientCmd.command("discover <slug>").description("Analiza los repos del cliente (API, sin clonar) y guarda discovery JSON.").option("--active-only", "Salta repos archivados / sin actividad.", false).option("--concurrency <n>", "Paralelismo de file reads (default 5).", (v) => Number.parseInt(v, 10)).option("--out <path>", "Path de salida del JSON. Default ~/.devflow/clients/<slug>.discovery.json").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (slug, opts) => {
+  try {
+    process.exit(await runClientDiscover(slug, opts));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

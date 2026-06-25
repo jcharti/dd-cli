@@ -24,6 +24,7 @@ import { runFlow } from '../commands/flow-cmd.js';
 import { runNewHdu } from '../commands/new-hdu-cmd.js';
 import { runHealth } from '../commands/health-cmd.js';
 import { runClientMigrate } from '../commands/client-migrate.js';
+import { runClientDiscover } from '../commands/client-discover.js';
 
 const program = new Command();
 
@@ -166,6 +167,18 @@ clientCmd
     // commander: `.option('--no-push')` setea opts.push = false cuando se usa --no-push
     const noPush = opts.push === false;
     try { process.exit(await runClientMigrate(slug, { apply: opts.apply, noPush, json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+clientCmd
+  .command('discover <slug>')
+  .description('Analiza los repos del cliente (API, sin clonar) y guarda discovery JSON.')
+  .option('--active-only', 'Salta repos archivados / sin actividad.', false)
+  .option('--concurrency <n>', 'Paralelismo de file reads (default 5).', (v) => Number.parseInt(v, 10))
+  .option('--out <path>', 'Path de salida del JSON. Default ~/.devflow/clients/<slug>.discovery.json')
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action(async (slug: string, opts: { activeOnly?: boolean; concurrency?: number; out?: string; json?: boolean }) => {
+    try { process.exit(await runClientDiscover(slug, opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 
