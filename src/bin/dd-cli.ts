@@ -153,8 +153,9 @@ program
   .command('pull-context [slug]')
   .description('Actualiza la cache local del contexto del cliente (git pull). Sin slug usa el .devflow/config.yml del CWD.')
   .option('--client <slug>', 'alias del slug posicional')
-  .action((slug: string | undefined, opts: { client?: string }) => {
-    try { process.exit(runPullContext(slug ?? opts.client)); }
+  .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
+  .action((slug: string | undefined, opts: { client?: string; json?: boolean }) => {
+    try { process.exit(runPullContext(slug ?? opts.client, { json: opts.json })); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

@@ -668,6 +668,18 @@ function jsonSuccess(command, data, nextSafeCommand) {
     ...nextSafeCommand !== void 0 ? { next_safe_command: nextSafeCommand } : {}
   };
 }
+function jsonError(opts) {
+  return {
+    status: "error",
+    command: opts.command,
+    cli_version: CLI_VERSION,
+    code: opts.code,
+    message: opts.message,
+    ...opts.context ? { context: opts.context } : {},
+    ...opts.recovery_hints ? { recovery_hints: opts.recovery_hints } : {},
+    ...opts.next_safe_command !== void 0 ? { next_safe_command: opts.next_safe_command } : {}
+  };
+}
 
 // src/utils/client-state.ts
 import { z as z3 } from "zod";
@@ -771,6 +783,72 @@ var ClientStateSchema = z3.object({
   open_gaps: z3.number().int().nonnegative().optional(),
   next_safe_command: z3.string().nullable().optional()
 });
+function getClientStatePath(slug) {
+  return path5.join(getDevflowGlobalDir(), "clients", `${slug}.state.json`);
+}
+function getStateCandidates(slug) {
+  return [
+    getClientStatePath(slug),
+    path5.join(getClientCacheDir(slug), "..", `${slug}.state.json`)
+  ];
+}
+function readClientState(slug) {
+  for (const candidate of getStateCandidates(slug)) {
+    if (!existsSync6(candidate)) continue;
+    try {
+      const raw = readFileSync4(candidate, "utf-8");
+      const parsed = JSON.parse(raw);
+      const result = ClientStateSchema.safeParse(parsed);
+      if (result.success) return result.data;
+    } catch {
+    }
+  }
+  return null;
+}
+function writeClientState(state) {
+  const statePath = getClientStatePath(state.slug);
+  mkdirSync3(path5.dirname(statePath), { recursive: true });
+  const validated = ClientStateSchema.parse(state);
+  writeFileSync3(statePath, JSON.stringify(validated, null, 2) + "\n", "utf-8");
+}
+function updateClientState(slug, patch) {
+  const existing = readClientState(slug);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const base = existing ?? {
+    schema_version: "1.0",
+    slug,
+    state: "REGISTERED",
+    last_command: "unknown",
+    last_command_at: now,
+    last_error: null
+  };
+  const merged = {
+    ...base,
+    ...patch,
+    slug,
+    // slug es inmutable
+    last_command_at: patch.last_command_at ?? now
+  };
+  const parsed = ClientStateSchema.parse(merged);
+  writeClientState(parsed);
+  return parsed;
+}
+function recordCommandResult(slug, command, result) {
+  if (result.success) {
+    updateClientState(slug, {
+      last_command: command,
+      last_error: null,
+      ...result.state ? { state: result.state } : {},
+      ...result.nextSafe !== void 0 ? { next_safe_command: result.nextSafe } : {}
+    });
+  } else {
+    updateClientState(slug, {
+      last_command: command,
+      last_error: result.error,
+      ...result.nextSafe !== void 0 ? { next_safe_command: result.nextSafe } : {}
+    });
+  }
+}
 
 // src/index.ts
 var CLI_VERSION = "0.5.1";
@@ -2791,13 +2869,27 @@ function runGit2(cmd, cwd) {
     stdio: ["pipe", "pipe", "pipe"]
   }).trim();
 }
-function runPullContext(slugArg) {
+function runPullContext(slugArg, opts) {
+  const jsonMode = isJsonMode(opts);
   let slug;
   let context_url;
   let appSlugFromLocalConfig;
   if (slugArg) {
     const entry = getClient(slugArg);
     if (!entry) {
+      if (jsonMode) {
+        emitJson(jsonError({
+          command: "pull-context",
+          code: "CLIENT_NOT_REGISTERED",
+          message: `Cliente "${slugArg}" no registrado en ~/.devflow/registry.yml.`,
+          context: { slug: slugArg },
+          recovery_hints: [
+            `Registr\xE1 el cliente: dd-cli register-client ${slugArg} --context-url=<url>`,
+            "O abr\xED Claude Code y ejecut\xE1 /devflow-ia:client-onboard para onboarding completo"
+          ],
+          next_safe_command: `dd-cli register-client ${slugArg} --context-url=<url>`
+        }));
+      }
       printErr(`Cliente "${slugArg}" no registrado en ~/.devflow/registry.yml.`);
       printInfo("Primero registra el cliente:");
       printDim(`  dd-cli register-client ${slugArg} --context-url=<url>`);
@@ -2809,6 +2901,19 @@ function runPullContext(slugArg) {
     const projectRoot = getProjectRoot();
     const config = loadProjectConfig(projectRoot);
     if (!config) {
+      if (jsonMode) {
+        emitJson(jsonError({
+          command: "pull-context",
+          code: "PROJECT_NOT_INITIALIZED",
+          message: "No se encontr\xF3 .devflow/config.yml en este proyecto.",
+          context: { cwd: projectRoot },
+          recovery_hints: [
+            "Conect\xE1 el repo al cliente: dd-cli init --client=<slug>",
+            "O sync expl\xEDcito sin estar en un repo: dd-cli pull-context <slug>"
+          ],
+          next_safe_command: "dd-cli init --client=<slug>"
+        }));
+      }
       printErr("No se encontr\xF3 .devflow/config.yml en este proyecto.");
       printInfo("Opciones:");
       printDim("  \u2022 Conectar el repo al cliente: dd-cli init --client=<slug>");
@@ -2820,22 +2925,47 @@ function runPullContext(slugArg) {
     appSlugFromLocalConfig = config.app.slug;
   }
   const cacheDir = getClientCacheDir(slug);
-  console.log(bold(`
+  if (!jsonMode) {
+    console.log(bold(`
 Actualizando contexto del cliente: ${slug}
 `));
-  printDim(`  Cache: ${cacheDir}`);
-  printDim(`  Fuente: ${context_url}`);
-  console.log("");
+    printDim(`  Cache: ${cacheDir}`);
+    printDim(`  Fuente: ${context_url}`);
+    console.log("");
+  }
   if (!existsSync16(cacheDir)) {
-    printInfo("Cache local no encontrada. Clonando...");
+    if (!jsonMode) printInfo("Cache local no encontrada. Clonando...");
     try {
       mkdirSync8(path15.dirname(cacheDir), { recursive: true });
       execSync3(`git clone "${context_url}" "${cacheDir}"`, { stdio: "pipe" });
       updateLastSynced(slug);
+      recordCommandResult(slug, "pull-context", { success: true });
+      if (jsonMode) {
+        emitJson(jsonSuccess("pull-context", {
+          slug,
+          action: "cloned",
+          cache_dir: cacheDir,
+          context_url
+        }));
+      }
       printOk("Contexto clonado correctamente");
       return 0;
     } catch (e) {
-      printErr(`Error al clonar: ${e instanceof Error ? e.message : String(e)}`);
+      const errMsg = e instanceof Error ? e.message : String(e);
+      const jsonErr = {
+        code: "GIT_CLONE_FAILED",
+        message: `Error al clonar contexto del cliente: ${errMsg}`,
+        context: { slug, context_url, cache_dir: cacheDir },
+        recovery_hints: [
+          "Verific\xE1 que ten\xE9s acceso al repo del contexto",
+          `Valid\xE1 el token del cliente: dd-cli health --client=${slug}`
+        ]
+      };
+      recordCommandResult(slug, "pull-context", { success: false, error: jsonErr });
+      if (jsonMode) {
+        emitJson(jsonError({ command: "pull-context", ...jsonErr }));
+      }
+      printErr(`Error al clonar: ${errMsg}`);
       printDim("  Verifica que tienes acceso al repo del contexto.");
       return 1;
     }
@@ -2848,40 +2978,77 @@ Actualizando contexto del cliente: ${slug}
   try {
     const pullOutput = runGit2("git pull", cacheDir);
     if (pullOutput.includes("Already up to date")) {
-      printOk("El contexto ya est\xE1 actualizado \u2014 no hay cambios");
       updateLastSynced(slug);
+      recordCommandResult(slug, "pull-context", { success: true });
+      if (jsonMode) {
+        emitJson(jsonSuccess("pull-context", {
+          slug,
+          action: "already-up-to-date",
+          cache_dir: cacheDir
+        }));
+      }
+      printOk("El contexto ya est\xE1 actualizado \u2014 no hay cambios");
       return 0;
     }
-    printOk("Contexto actualizado");
     updateLastSynced(slug);
+    let commits = [];
     if (beforeHash) {
       try {
         const log2 = runGit2(`git log ${beforeHash}..HEAD --oneline`, cacheDir);
-        if (log2) {
-          console.log("");
-          printDim("Cambios recibidos:");
-          log2.split("\n").forEach((l) => printDim(`  ${l}`));
-        }
+        if (log2) commits = log2.split("\n");
       } catch {
       }
     }
+    let appCatalogChanged = false;
     if (appSlugFromLocalConfig) {
       try {
         const diff = runGit2(
           `git diff ${beforeHash}..HEAD -- .devflow-context/app-catalog.md`,
           cacheDir
         );
-        if (diff.includes(`+| ${appSlugFromLocalConfig}`) || diff.includes(`-| ${appSlugFromLocalConfig}`)) {
-          console.log("");
-          printWarn(`La entrada de "${appSlugFromLocalConfig}" en app-catalog.md cambi\xF3.`);
-          printInfo("Revisa si necesitas actualizar .devflow/config.yml");
-        }
+        appCatalogChanged = diff.includes(`+| ${appSlugFromLocalConfig}`) || diff.includes(`-| ${appSlugFromLocalConfig}`);
       } catch {
       }
     }
+    recordCommandResult(slug, "pull-context", { success: true });
+    if (jsonMode) {
+      emitJson(jsonSuccess("pull-context", {
+        slug,
+        action: "pulled",
+        commits_count: commits.length,
+        commits,
+        app_catalog_changed_for: appCatalogChanged ? appSlugFromLocalConfig : null
+      }));
+    }
+    printOk("Contexto actualizado");
+    if (commits.length > 0) {
+      console.log("");
+      printDim("Cambios recibidos:");
+      commits.forEach((l) => printDim(`  ${l}`));
+    }
+    if (appCatalogChanged && appSlugFromLocalConfig) {
+      console.log("");
+      printWarn(`La entrada de "${appSlugFromLocalConfig}" en app-catalog.md cambi\xF3.`);
+      printInfo("Revisa si necesitas actualizar .devflow/config.yml");
+    }
     return 0;
   } catch (e) {
-    printErr(`Error al actualizar: ${e instanceof Error ? e.message : String(e)}`);
+    const errMsg = e instanceof Error ? e.message : String(e);
+    const jsonErr = {
+      code: "GIT_PULL_FAILED",
+      message: `Error al actualizar contexto: ${errMsg}`,
+      context: { slug, cache_dir: cacheDir },
+      recovery_hints: [
+        "Verific\xE1 tu conexi\xF3n y acceso al repo del contexto",
+        `Re-valid\xE1 el token: dd-cli health --client=${slug}`,
+        `Si la cache est\xE1 corrupta: dd-cli register-client ${slug} --context-url=${context_url} --force`
+      ]
+    };
+    recordCommandResult(slug, "pull-context", { success: false, error: jsonErr });
+    if (jsonMode) {
+      emitJson(jsonError({ command: "pull-context", ...jsonErr }));
+    }
+    printErr(`Error al actualizar: ${errMsg}`);
     printDim("  Verifica tu conexi\xF3n y acceso al repo del contexto.");
     return 1;
   }
@@ -3858,9 +4025,9 @@ program.command("register-client <slug>").description("Registra un cliente y clo
     process.exit(10);
   }
 });
-program.command("pull-context [slug]").description("Actualiza la cache local del contexto del cliente (git pull). Sin slug usa el .devflow/config.yml del CWD.").option("--client <slug>", "alias del slug posicional").action((slug, opts) => {
+program.command("pull-context [slug]").description("Actualiza la cache local del contexto del cliente (git pull). Sin slug usa el .devflow/config.yml del CWD.").option("--client <slug>", "alias del slug posicional").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action((slug, opts) => {
   try {
-    process.exit(runPullContext(slug ?? opts.client));
+    process.exit(runPullContext(slug ?? opts.client, { json: opts.json }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);
