@@ -649,6 +649,251 @@ declare function recordCommandResult(slug: string, command: string, result: {
 }): void;
 
 /**
+ * GitProvider — abstracción provider-agnóstica (D-6 Parte 3 del rediseño).
+ *
+ * Soporta GitLab (cloud + self-hosted) y GitHub (cloud + Enterprise) detrás
+ * de la misma interface. `pattern-detector.ts` y la skill `/client-onboard`
+ * reciben un `GitProvider` ya construido — no saben qué proveedor es.
+ *
+ * Bitbucket / Azure DevOps quedan para v2 con la misma interface.
+ *
+ * Scope v1 (Sprint 1):
+ *   - validateToken / listGroupRepos / readFile / readFirstFound  → implementados.
+ *   - createRepo / setBranchProtection / createPullRequest / configureWebhook
+ *     → stubs que tiran NOT_IMPLEMENTED. Se completan en Sprint 3 (`client new`).
+ */
+type ProviderType = 'gitlab' | 'github';
+interface RepoMeta {
+    id: string | number;
+    slug: string;
+    name: string;
+    description: string;
+    url: string;
+    ssh_url: string;
+    default_branch: string;
+    last_push: string;
+    language: string | null;
+    size_kb: number;
+    topics: string[];
+    archived: boolean;
+    ci_config_path: string | null;
+}
+interface FileContent {
+    path: string;
+    content: string;
+    found: boolean;
+}
+interface TokenValidation {
+    valid: boolean;
+    user: string | null;
+    scopes_present: string[];
+    scopes_missing: string[];
+    is_admin_of_group: boolean | null;
+    message: string;
+}
+interface ValidateTokenOpts {
+    /**
+     * Operaciones que el caller quiere validar. El provider calcula qué scopes
+     * mínimos requiere cada una y reporta los que faltan.
+     */
+    required_for?: Array<'read' | 'write' | 'create_repo' | 'branch_protection' | 'webhook'>;
+}
+interface CreateRepoOpts {
+    name: string;
+    description?: string;
+    visibility?: 'private' | 'internal' | 'public';
+    default_branch?: string;
+    initialize_with_readme?: boolean;
+}
+interface BranchProtectionRules {
+    branch: string;
+    require_pull_request?: boolean;
+    required_approvals?: number;
+    allow_force_push?: boolean;
+}
+interface CreatePullRequestOpts {
+    source_branch: string;
+    target_branch: string;
+    title: string;
+    body: string;
+}
+interface PullRequestRef {
+    number: number;
+    url: string;
+}
+interface WebhookOpts {
+    url: string;
+    events: string[];
+    secret?: string;
+}
+interface GitProvider {
+    readonly type: ProviderType;
+    readonly base_url: string;
+    readonly group_or_org: string;
+    validateToken(opts?: ValidateTokenOpts): Promise<TokenValidation>;
+    listGroupRepos(): Promise<RepoMeta[]>;
+    readFile(repoIdOrSlug: string | number, filePath: string, ref?: string): Promise<FileContent>;
+    readFirstFound(repoIdOrSlug: string | number, candidates: string[], ref?: string): Promise<FileContent>;
+    createRepo?(opts: CreateRepoOpts): Promise<RepoMeta>;
+    setBranchProtection?(repoIdOrSlug: string | number, rules: BranchProtectionRules): Promise<void>;
+    createPullRequest?(repoIdOrSlug: string | number, opts: CreatePullRequestOpts): Promise<PullRequestRef>;
+    configureWebhook?(repoIdOrSlug: string | number, opts: WebhookOpts): Promise<void>;
+}
+declare class ProviderError extends Error {
+    readonly cause?: {
+        provider: ProviderType;
+        status?: number;
+        body?: string;
+    } | undefined;
+    constructor(message: string, cause?: {
+        provider: ProviderType;
+        status?: number;
+        body?: string;
+    } | undefined);
+}
+declare class NotImplementedError extends ProviderError {
+    constructor(provider: ProviderType, feature: string);
+}
+
+/**
+ * GitLabProvider — implementación de GitProvider para GitLab cloud y self-hosted.
+ *
+ * Scope: API v4 (https://docs.gitlab.com/ee/api/).
+ * Auth: PAT con header PRIVATE-TOKEN.
+ *
+ * Permisos esperados (ver sección 4.7 del doc rediseño):
+ *   read_api          listGroupRepos + readFile
+ *   api               createRepo + setBranchProtection + createPullRequest + configureWebhook
+ *   write_repository  push (incluido en `api`)
+ */
+
+interface GitLabProviderOpts {
+    base_url: string;
+    group: string;
+    token: string;
+}
+declare class GitLabProvider implements GitProvider {
+    readonly type: ProviderType;
+    readonly base_url: string;
+    readonly group_or_org: string;
+    private readonly token;
+    constructor(opts: GitLabProviderOpts);
+    private request;
+    /**
+     * Mapeo de operación → scopes mínimos requeridos (sección 4.7).
+     * GitLab `api` incluye casi todo; `read_api` es solo lectura.
+     */
+    private requiredScopesFor;
+    validateToken(opts?: ValidateTokenOpts): Promise<TokenValidation>;
+    listGroupRepos(): Promise<RepoMeta[]>;
+    readFile(repoIdOrSlug: string | number, filePath: string, ref?: string): Promise<FileContent>;
+    readFirstFound(repoIdOrSlug: string | number, candidates: string[], ref?: string): Promise<FileContent>;
+    createRepo(_opts: CreateRepoOpts): Promise<RepoMeta>;
+    setBranchProtection(_repo: string | number, _rules: BranchProtectionRules): Promise<void>;
+    createPullRequest(_repo: string | number, _opts: CreatePullRequestOpts): Promise<PullRequestRef>;
+    configureWebhook(_repo: string | number, _opts: WebhookOpts): Promise<void>;
+}
+
+/**
+ * GitHubProvider — implementación de GitProvider para GitHub cloud y Enterprise.
+ *
+ * Scope: REST API v3 (https://docs.github.com/en/rest).
+ * Auth: PAT classic con Authorization Bearer (también compatible con
+ *       fine-grained PAT).
+ *
+ * Permisos esperados (ver sección 4.7 del doc rediseño):
+ *   Classic PAT:        repo, admin:repo_hook (para webhooks)
+ *   Fine-grained PAT:   Contents:Read/Write, Pull requests:Write,
+ *                       Administration:Write (branch protection + crear repo),
+ *                       Webhooks:Write
+ */
+
+interface GitHubProviderOpts {
+    base_url: string;
+    org: string;
+    token: string;
+}
+declare class GitHubProvider implements GitProvider {
+    readonly type: ProviderType;
+    readonly base_url: string;
+    readonly group_or_org: string;
+    private readonly token;
+    constructor(opts: GitHubProviderOpts);
+    private request;
+    /**
+     * GitHub Classic PAT: la API devuelve scopes en el header `x-oauth-scopes`.
+     * Fine-grained PAT: el header viene vacío (los permisos son por-repo),
+     * en ese caso reportamos `scopes_present: []` y dejamos que el caller
+     * intente la operación — fallará con 403 si no tiene permiso.
+     */
+    private requiredScopesFor;
+    validateToken(opts?: ValidateTokenOpts): Promise<TokenValidation>;
+    listGroupRepos(): Promise<RepoMeta[]>;
+    readFile(repoIdOrSlug: string | number, filePath: string, ref?: string): Promise<FileContent>;
+    readFirstFound(repoIdOrSlug: string | number, candidates: string[], ref?: string): Promise<FileContent>;
+    createRepo(_opts: CreateRepoOpts): Promise<RepoMeta>;
+    setBranchProtection(_repo: string | number, _rules: BranchProtectionRules): Promise<void>;
+    createPullRequest(_repo: string | number, _opts: CreatePullRequestOpts): Promise<PullRequestRef>;
+    configureWebhook(_repo: string | number, _opts: WebhookOpts): Promise<void>;
+}
+
+/**
+ * Schema de ~/.devflow/credentials.yml — credenciales git por cliente.
+ *
+ * Archivo con permisos 600 (solo lectura del usuario).
+ * NUNCA se commitea. Separado de registry.yml para seguridad.
+ */
+
+declare const GitHostSchema: z.ZodEnum<["gitlab", "github", "bitbucket", "azure"]>;
+type GitHost = z.infer<typeof GitHostSchema>;
+declare const ClientCredentialsSchema: z.ZodObject<{
+    git_token: z.ZodString;
+    git_host: z.ZodDefault<z.ZodEnum<["gitlab", "github", "bitbucket", "azure"]>>;
+    git_base_url: z.ZodDefault<z.ZodString>;
+    git_group: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    git_token: string;
+    git_host: "gitlab" | "github" | "bitbucket" | "azure";
+    git_base_url: string;
+    git_group: string;
+}, {
+    git_token: string;
+    git_group: string;
+    git_host?: "gitlab" | "github" | "bitbucket" | "azure" | undefined;
+    git_base_url?: string | undefined;
+}>;
+type ClientCredentials = z.infer<typeof ClientCredentialsSchema>;
+
+/**
+ * Factory para construir un GitProvider desde las credenciales del cliente.
+ *
+ * El caller no decide qué provider construir — sólo entrega las credenciales
+ * y obtiene la interface unificada. Cumple D-6 Parte 3 del rediseño.
+ *
+ * Detección del provider:
+ *   1. Si `creds.git_host` está seteado, gana.
+ *   2. Si no, inferir desde `git_base_url`:
+ *        contiene "github" → github
+ *        else              → gitlab
+ *
+ * El registry / context-repo.yml también pueden guardar `provider` explícito
+ * y pasarlo acá — eso es el caso preferido (sin inferencia).
+ */
+
+interface CreateProviderOverrides {
+    type?: ProviderType;
+    base_url?: string;
+    group_or_org?: string;
+}
+/**
+ * Construye un GitProvider concreto desde las credenciales registradas.
+ * Por defecto usa los campos de `creds`; los overrides permiten ajustar
+ * (útil para tests y para `client new` cuando el cliente no está aún en el registry).
+ */
+declare function createProvider(creds: ClientCredentials, overrides?: CreateProviderOverrides): GitProvider;
+declare function inferProviderType(host: GitHost | undefined, baseUrl: string): ProviderType;
+
+/**
  * @devflow-ia/cli — exports públicos.
  * Permite que otras herramientas (skills, tests, plataforma) consuman
  * la lógica core sin invocar el binario.
@@ -656,4 +901,4 @@ declare function recordCommandResult(slug: string, command: string, result: {
 
 declare const CLI_VERSION = "0.5.1";
 
-export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, CLIENT_STATES, CLI_VERSION, type ClientState, ClientStateSchema, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FlowState, FlowStateSchema, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, PROVIDERS, RULES, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type Vendor, createInitialSession, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadSession, partition, readClientState, recordCommandResult, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep, updateClientState, writeClientState };
+export { APP_ORIGINS, type Anomaly, type AppOrigin, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type ClientState, ClientStateSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NotImplementedError, PROVIDERS, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Task, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getDevflowDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, hasSession, inferProviderType, isAppOrigin, isBrownfield, isClaudeCodeInstalled, isDevFlowProject, isDevType, isJsonMode, jsonError, jsonSuccess, loadSession, partition, readClientState, recordCommandResult, requiresBaseline, requiresRepoContext, rulesForDevType, saveSession, suggestedNextStep, updateClientState, writeClientState };

@@ -814,6 +814,388 @@ function recordCommandResult(slug, command, result) {
   }
 }
 
+// src/providers/types.ts
+var ProviderError = class extends Error {
+  constructor(message, cause) {
+    super(message);
+    this.cause = cause;
+    this.name = "ProviderError";
+  }
+  cause;
+};
+var NotImplementedError = class extends ProviderError {
+  constructor(provider, feature) {
+    super(`${provider}: ${feature} no est\xE1 implementado todav\xEDa (Sprint 3)`, { provider });
+    this.name = "NotImplementedError";
+  }
+};
+
+// src/providers/gitlab.ts
+var GitLabProvider = class {
+  type = "gitlab";
+  base_url;
+  group_or_org;
+  token;
+  constructor(opts) {
+    this.base_url = opts.base_url.replace(/\/$/, "");
+    this.group_or_org = opts.group;
+    this.token = opts.token;
+  }
+  // ── HTTP helpers ──────────────────────────────────────────────────
+  async request(endpoint, params = {}, init) {
+    const url = new URL(`${this.base_url}/api/v4/${endpoint}`);
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    const response = await fetch(url.toString(), {
+      ...init,
+      headers: {
+        "PRIVATE-TOKEN": this.token,
+        "Content-Type": "application/json",
+        ...init?.headers ?? {}
+      }
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new ProviderError(
+        `GitLab API ${response.status} en ${endpoint}: ${body.slice(0, 300)}`,
+        { provider: "gitlab", status: response.status, body }
+      );
+    }
+    return response.json();
+  }
+  // ── validateToken ─────────────────────────────────────────────────
+  /**
+   * Mapeo de operación → scopes mínimos requeridos (sección 4.7).
+   * GitLab `api` incluye casi todo; `read_api` es solo lectura.
+   */
+  requiredScopesFor(op) {
+    switch (op) {
+      case "read":
+        return ["read_api"];
+      case "write":
+        return ["api"];
+      case "create_repo":
+        return ["api"];
+      case "branch_protection":
+        return ["api"];
+      case "webhook":
+        return ["api"];
+    }
+  }
+  async validateToken(opts = {}) {
+    let user = null;
+    let scopes_present = [];
+    let is_admin_of_group = null;
+    let message = "";
+    try {
+      const tokenInfo = await this.request("personal_access_tokens/self");
+      scopes_present = tokenInfo.scopes ?? [];
+      if (tokenInfo.user_id) {
+        const userResp = await this.request(`users/${tokenInfo.user_id}`);
+        user = userResp.username ?? null;
+      }
+      message = "Token v\xE1lido";
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        valid: false,
+        user: null,
+        scopes_present: [],
+        scopes_missing: [],
+        is_admin_of_group: null,
+        message: `Token inv\xE1lido o sin acceso a la API: ${msg}`
+      };
+    }
+    try {
+      const groupResp = await this.request(`groups/${encodeURIComponent(this.group_or_org)}`);
+      if (groupResp.full_path) {
+        try {
+          const members = await this.request(
+            `groups/${encodeURIComponent(this.group_or_org)}/members/all`,
+            { query: user ?? "" }
+          );
+          const me = members.find((m) => m.username === user);
+          if (me) is_admin_of_group = me.access_level >= 40;
+        } catch {
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      message = `Token v\xE1lido pero sin acceso al group ${this.group_or_org}: ${msg}`;
+    }
+    const required = /* @__PURE__ */ new Set();
+    for (const op of opts.required_for ?? []) {
+      for (const s of this.requiredScopesFor(op)) required.add(s);
+    }
+    const scopes_missing = [...required].filter((s) => !scopes_present.includes(s));
+    return {
+      valid: true,
+      user,
+      scopes_present,
+      scopes_missing,
+      is_admin_of_group,
+      message
+    };
+  }
+  // ── listGroupRepos ────────────────────────────────────────────────
+  async listGroupRepos() {
+    const encodedGroup = encodeURIComponent(this.group_or_org);
+    const projects = await this.request(
+      `groups/${encodedGroup}/projects`,
+      {
+        per_page: "100",
+        include_subgroups: "true",
+        with_shared: "false",
+        order_by: "last_activity_at",
+        sort: "desc"
+      }
+    );
+    return projects.map((p) => ({
+      id: p["id"],
+      slug: p["path"] ?? "",
+      name: p["name"] ?? "",
+      description: p["description"] ?? "",
+      url: p["http_url_to_repo"] ?? "",
+      ssh_url: p["ssh_url_to_repo"] ?? "",
+      default_branch: p["default_branch"] ?? "main",
+      last_push: p["last_activity_at"] ?? "",
+      language: null,
+      size_kb: p["statistics"]?.["repository_size"] ?? 0,
+      topics: p["topics"] ?? [],
+      archived: p["archived"] ?? false,
+      ci_config_path: p["ci_config_path"] ?? null
+    }));
+  }
+  // ── readFile / readFirstFound ─────────────────────────────────────
+  async readFile(repoIdOrSlug, filePath, ref = "main") {
+    try {
+      const encoded = encodeURIComponent(filePath);
+      const data = await this.request(
+        `projects/${repoIdOrSlug}/repository/files/${encoded}`,
+        { ref }
+      );
+      const content = Buffer.from(data["content"] ?? "", "base64").toString("utf-8");
+      return { path: filePath, content, found: true };
+    } catch {
+      return { path: filePath, content: "", found: false };
+    }
+  }
+  async readFirstFound(repoIdOrSlug, candidates, ref = "main") {
+    for (const candidate of candidates) {
+      const result = await this.readFile(repoIdOrSlug, candidate, ref);
+      if (result.found) return result;
+    }
+    return { path: candidates[0] ?? "", content: "", found: false };
+  }
+  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
+  async createRepo(_opts) {
+    throw new NotImplementedError("gitlab", "createRepo");
+  }
+  async setBranchProtection(_repo, _rules) {
+    throw new NotImplementedError("gitlab", "setBranchProtection");
+  }
+  async createPullRequest(_repo, _opts) {
+    throw new NotImplementedError("gitlab", "createPullRequest (createMergeRequest)");
+  }
+  async configureWebhook(_repo, _opts) {
+    throw new NotImplementedError("gitlab", "configureWebhook");
+  }
+};
+
+// src/providers/github.ts
+var GitHubProvider = class {
+  type = "github";
+  base_url;
+  group_or_org;
+  token;
+  constructor(opts) {
+    this.base_url = opts.base_url.replace(/\/$/, "");
+    this.group_or_org = opts.org;
+    this.token = opts.token;
+  }
+  // ── HTTP helpers ──────────────────────────────────────────────────
+  async request(endpoint, params = {}, init) {
+    const url = new URL(`${this.base_url}/${endpoint}`);
+    Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+    const response = await fetch(url.toString(), {
+      ...init,
+      headers: {
+        "Authorization": `Bearer ${this.token}`,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...init?.headers ?? {}
+      }
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new ProviderError(
+        `GitHub API ${response.status} en ${endpoint}: ${body.slice(0, 300)}`,
+        { provider: "github", status: response.status, body }
+      );
+    }
+    return { json: await response.json(), headers: response.headers };
+  }
+  // ── validateToken ─────────────────────────────────────────────────
+  /**
+   * GitHub Classic PAT: la API devuelve scopes en el header `x-oauth-scopes`.
+   * Fine-grained PAT: el header viene vacío (los permisos son por-repo),
+   * en ese caso reportamos `scopes_present: []` y dejamos que el caller
+   * intente la operación — fallará con 403 si no tiene permiso.
+   */
+  requiredScopesFor(op) {
+    switch (op) {
+      case "read":
+        return ["repo"];
+      // o public_repo si público
+      case "write":
+        return ["repo"];
+      case "create_repo":
+        return ["repo"];
+      case "branch_protection":
+        return ["repo"];
+      case "webhook":
+        return ["admin:repo_hook"];
+    }
+  }
+  async validateToken(opts = {}) {
+    let user = null;
+    let scopes_present = [];
+    let is_admin_of_group = null;
+    let message = "";
+    try {
+      const { json, headers } = await this.request("user");
+      const u = json;
+      user = u.login ?? null;
+      const scopeHeader = headers.get("x-oauth-scopes") ?? "";
+      scopes_present = scopeHeader.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+      message = scopeHeader === "" ? "Token v\xE1lido (fine-grained PAT \u2014 scopes por-repo)" : "Token v\xE1lido";
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        valid: false,
+        user: null,
+        scopes_present: [],
+        scopes_missing: [],
+        is_admin_of_group: null,
+        message: `Token inv\xE1lido o sin acceso a la API: ${msg}`
+      };
+    }
+    if (user) {
+      try {
+        const { json } = await this.request(`orgs/${this.group_or_org}/memberships/${user}`);
+        const membership = json;
+        is_admin_of_group = membership.role === "admin" && membership.state === "active";
+      } catch {
+      }
+    }
+    const required = /* @__PURE__ */ new Set();
+    for (const op of opts.required_for ?? []) {
+      for (const s of this.requiredScopesFor(op)) required.add(s);
+    }
+    const scopes_missing = scopes_present.length === 0 ? [] : [...required].filter((s) => !scopes_present.includes(s));
+    return {
+      valid: true,
+      user,
+      scopes_present,
+      scopes_missing,
+      is_admin_of_group,
+      message
+    };
+  }
+  // ── listGroupRepos ────────────────────────────────────────────────
+  async listGroupRepos() {
+    const { json } = await this.request(
+      `orgs/${this.group_or_org}/repos`,
+      { per_page: "100", sort: "pushed", direction: "desc" }
+    );
+    const repos = json;
+    return repos.map((r) => ({
+      id: r["id"],
+      slug: r["name"] ?? "",
+      name: r["full_name"] ?? "",
+      description: r["description"] ?? "",
+      url: r["clone_url"] ?? "",
+      ssh_url: r["ssh_url"] ?? "",
+      default_branch: r["default_branch"] ?? "main",
+      last_push: r["pushed_at"] ?? "",
+      language: r["language"] ?? null,
+      size_kb: r["size"] ?? 0,
+      topics: r["topics"] ?? [],
+      archived: r["archived"] ?? false,
+      ci_config_path: null
+    }));
+  }
+  // ── readFile / readFirstFound ─────────────────────────────────────
+  async readFile(repoIdOrSlug, filePath, ref = "main") {
+    try {
+      const { json } = await this.request(
+        `repos/${this.group_or_org}/${repoIdOrSlug}/contents/${filePath}`,
+        { ref }
+      );
+      const data = json;
+      const content = Buffer.from(data["content"] ?? "", "base64").toString("utf-8");
+      return { path: filePath, content, found: true };
+    } catch {
+      return { path: filePath, content: "", found: false };
+    }
+  }
+  async readFirstFound(repoIdOrSlug, candidates, ref = "main") {
+    for (const candidate of candidates) {
+      const result = await this.readFile(repoIdOrSlug, candidate, ref);
+      if (result.found) return result;
+    }
+    return { path: candidates[0] ?? "", content: "", found: false };
+  }
+  // ── Write side (Sprint 3 stubs) ──────────────────────────────────
+  async createRepo(_opts) {
+    throw new NotImplementedError("github", "createRepo");
+  }
+  async setBranchProtection(_repo, _rules) {
+    throw new NotImplementedError("github", "setBranchProtection");
+  }
+  async createPullRequest(_repo, _opts) {
+    throw new NotImplementedError("github", "createPullRequest");
+  }
+  async configureWebhook(_repo, _opts) {
+    throw new NotImplementedError("github", "configureWebhook");
+  }
+};
+
+// src/providers/factory.ts
+function createProvider(creds, overrides = {}) {
+  const type = overrides.type ?? inferProviderType(creds.git_host, creds.git_base_url);
+  const base_url = overrides.base_url ?? defaultBaseUrlFor(type, creds.git_base_url);
+  const group_or_org = overrides.group_or_org ?? creds.git_group;
+  switch (type) {
+    case "gitlab":
+      return new GitLabProvider({
+        base_url,
+        group: group_or_org,
+        token: creds.git_token
+      });
+    case "github":
+      return new GitHubProvider({
+        base_url,
+        org: group_or_org,
+        token: creds.git_token
+      });
+  }
+}
+function inferProviderType(host, baseUrl) {
+  if (host === "github") return "github";
+  if (host === "gitlab") return "gitlab";
+  if (/github/i.test(baseUrl)) return "github";
+  return "gitlab";
+}
+function defaultBaseUrlFor(type, raw) {
+  if (type === "gitlab") return raw;
+  if (/^https?:\/\/(www\.)?github\.com\/?$/i.test(raw)) {
+    return "https://api.github.com";
+  }
+  if (/\/api\/v\d/.test(raw)) return raw;
+  if (/github/i.test(raw)) return `${raw.replace(/\/$/, "")}/api/v3`;
+  return raw;
+}
+
 // src/index.ts
 var CLI_VERSION = "0.5.1";
 export {
@@ -826,11 +1208,16 @@ export {
   DevTypeSourceSchema,
   ERROR_CODES,
   FlowStateSchema,
+  GitHubProvider,
+  GitLabProvider,
+  NotImplementedError,
   PROVIDERS,
+  ProviderError,
   RULES,
   SessionIOError,
   SessionStateSchema,
   createInitialSession,
+  createProvider,
   detectFlowState,
   emitJson,
   enforcementRuleIdsForDevType,
@@ -851,6 +1238,7 @@ export {
   getProjectRoot,
   getSessionPath,
   hasSession,
+  inferProviderType,
   isAppOrigin,
   isBrownfield,
   isClaudeCodeInstalled,

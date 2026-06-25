@@ -16,4 +16,10 @@ export * from './utils/error-codes.js';
 export * from './utils/json-output.js';
 export * from './utils/client-state.js';
 
+// Provider abstraction (S1-8 / D-6 Parte 3) — GitLab + GitHub unificados.
+export * from './providers/types.js';
+export { GitLabProvider } from './providers/gitlab.js';
+export { GitHubProvider } from './providers/github.js';
+export { createProvider, inferProviderType } from './providers/factory.js';
+
 export const CLI_VERSION = '0.5.1';
