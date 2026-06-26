@@ -27,6 +27,7 @@ import { runClientMigrate } from '../commands/client-migrate.js';
 import { runClientDiscover } from '../commands/client-discover.js';
 import { runContextValidate } from '../commands/context-validate.js';
 import { runContextRender } from '../commands/context-render.js';
+import { runContextInstallCi } from '../commands/context-install-ci.js';
 import { runClientNew } from '../commands/client-new.js';
 import { runClientPublish } from '../commands/client-publish.js';
 import { runClientShow } from '../commands/client-show.js';
@@ -40,6 +41,7 @@ import {
   runHduAssign, runHduClaim, runHduIndexCmd,
 } from '../commands/hdu-cmd.js';
 import { runHduNext } from '../commands/hdu-next.js';
+import { runHduApplyMerge } from '../commands/hdu-apply-merge.js';
 import { runStats } from '../commands/stats-cmd.js';
 import { runGuide } from '../commands/guide-cmd.js';
 import { runToday } from '../commands/today-cmd.js';
@@ -270,6 +272,19 @@ hduCmd
   });
 
 hduCmd
+  .command('apply-merge')
+  .description('CI job: detecta hdus/*.md cambiados en HEAD y propaga draft → approved.')
+  .option('--path <dir>', 'Path al context repo (default cwd)')
+  .option('--apply', 'Persiste los cambios. Sin esto, dry-run.', false)
+  .option('--commit', 'git add + commit + push después de aplicar (cuando --apply)', false)
+  .option('--by <email>', 'Actor para el transitions log (default: autor del último commit)')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runHduApplyMerge(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+hduCmd
   .command('next')
   .description('Sugiere la próxima HDU para el dev (scoring).')
   .option('--client <slug>', 'Slug del cliente')
@@ -392,6 +407,17 @@ contextCmd
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (repoPath: string | undefined, opts: { json?: boolean }) => {
     try { process.exit(await runContextValidate(repoPath, { json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+contextCmd
+  .command('install-ci [path]')
+  .description('Provisiona el CI job para HDU transitions (S5-4). Detecta provider del marcador .context-repo.yml.')
+  .option('--force', 'Sobreescribe si el archivo ya existe con contenido distinto.', false)
+  .option('--provider <type>', 'Override del provider detectado (gitlab|github)')
+  .option('--json', 'Output JSON', false)
+  .action(async (repoPath: string | undefined, opts: any) => {
+    try { process.exit(await runContextInstallCi(repoPath, opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

@@ -1,0 +1,43 @@
+name: HDU transitions
+
+# Propaga draft → approved al mergear PR a main (S5-4 del rediseño).
+# Detecta hdus/*.md cambiados en el push y aplica las transiciones.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'hdus/*.md'
+
+# Permisos mínimos: leer el repo, escribir contenido (para el commit de transiciones).
+permissions:
+  contents: write
+
+jobs:
+  apply-hdu-transitions:
+    runs-on: ubuntu-latest
+    # Evitar loops cuando este mismo workflow commitea de vuelta.
+    if: github.actor != 'github-actions[bot]'
+
+    steps:
+      - name: Checkout context repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # necesitamos HEAD~1 para el diff
+          token: ${{ secrets.HDU_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dd-cli
+        run: npm install -g '@devflow-ia/cli'
+
+      - name: Configure git
+        run: |
+          git config user.email "ci@devflow-ia.local"
+          git config user.name "DevFlow IA CI"
+
+      - name: Apply HDU transitions
+        run: dd-cli hdu apply-merge --apply --commit --by="${{ github.actor }}@github"

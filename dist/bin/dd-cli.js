@@ -4348,11 +4348,11 @@ async function runWatch(opts = {}) {
   };
   render();
   const timer = setInterval(render, interval);
-  await new Promise((resolve10) => {
+  await new Promise((resolve12) => {
     process.on("SIGINT", () => {
       clearInterval(timer);
       cleanup();
-      resolve10();
+      resolve12();
     });
   });
 }
@@ -5902,10 +5902,133 @@ async function runContextRender(repoPathArg, opts = {}) {
   return 0;
 }
 
+// src/commands/context-install-ci.ts
+import { existsSync as existsSync30, readFileSync as readFileSync23, writeFileSync as writeFileSync17, mkdirSync as mkdirSync18 } from "fs";
+import * as path30 from "path";
+import { fileURLToPath as fileURLToPath5 } from "url";
+function resolveTemplatePath(filename) {
+  try {
+    const here = path30.dirname(fileURLToPath5(import.meta.url));
+    const candidates = [
+      path30.resolve(here, "../templates/ci", filename),
+      path30.resolve(here, "../../templates/ci", filename),
+      path30.resolve(here, "../../../templates/ci", filename)
+    ];
+    for (const c3 of candidates) {
+      if (existsSync30(c3)) return c3;
+    }
+  } catch {
+  }
+  return null;
+}
+async function runContextInstallCi(repoPathArg, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const repoRoot = path30.resolve(repoPathArg ?? process.cwd());
+  if (!existsSync30(repoRoot) || !isContextRepo(repoRoot)) {
+    const e = {
+      code: "CONTEXT_REPO_INVALID",
+      message: `${repoRoot} no parece ser un context repo.`,
+      recovery_hints: ["Valid\xE1: dd-cli context validate"]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "context install-ci", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  let provider = opts.provider;
+  if (!provider) {
+    const marker = loadContextRepoMarker(repoRoot);
+    provider = marker?.provider?.type;
+  }
+  if (!provider) {
+    const e = {
+      code: "CONFIG_MISSING",
+      message: "No pude detectar el provider del context repo.",
+      recovery_hints: [
+        "Asegurate que .devflow-context/.context-repo.yml tenga el campo provider",
+        "O pasalo expl\xEDcito: dd-cli context install-ci --provider=gitlab|github"
+      ]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "context install-ci", ...e }));
+    printErr(e.message);
+    return 2;
+  }
+  const templateFilename = provider === "gitlab" ? "gitlab-hdu-transitions.yml" : "github-hdu-transitions.yml";
+  const targetRelPath = provider === "gitlab" ? ".gitlab-ci.yml" : ".github/workflows/hdu-transitions.yml";
+  const targetPath = path30.join(repoRoot, targetRelPath);
+  const templatePath = resolveTemplatePath(templateFilename);
+  if (!templatePath) {
+    const e = {
+      code: "CONFIG_MISSING",
+      message: `Template "${templateFilename}" no se encuentra en la instalaci\xF3n del CLI.`,
+      recovery_hints: ["Reinstal\xE1 el CLI o report\xE1 el bug"]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "context install-ci", ...e }));
+    printErr(e.message);
+    return 1;
+  }
+  const templateContent = readFileSync23(templatePath, "utf-8");
+  let action;
+  if (!existsSync30(targetPath)) {
+    mkdirSync18(path30.dirname(targetPath), { recursive: true });
+    writeFileSync17(targetPath, templateContent, "utf-8");
+    action = "written";
+  } else {
+    const current = readFileSync23(targetPath, "utf-8");
+    if (current === templateContent) {
+      action = "unchanged";
+    } else if (opts.force) {
+      writeFileSync17(targetPath, templateContent, "utf-8");
+      action = "overwritten";
+    } else {
+      action = "conflict";
+    }
+  }
+  const result = {
+    provider,
+    target_path: targetPath,
+    template_path: templatePath,
+    action
+  };
+  if (jsonMode) {
+    emitJson(jsonSuccess("context install-ci", result, action === "conflict" ? `dd-cli context install-ci ${repoPathArg ?? ""} --force` : null));
+  }
+  console.log("");
+  console.log(bold(`CI install \u2014 provider: ${provider}`));
+  switch (action) {
+    case "written":
+      printOk(`Escrito: ${targetPath}`);
+      break;
+    case "unchanged":
+      printDim(`Sin cambios: ${targetPath} ya est\xE1 al d\xEDa`);
+      break;
+    case "overwritten":
+      printOk(`Sobreescrito: ${targetPath}`);
+      break;
+    case "conflict":
+      printWarn(`Conflicto: ${targetPath} ya existe con contenido distinto`);
+      printInfo("Para sobreescribir: dd-cli context install-ci --force");
+      printInfo("Para mergearlo a mano: ver " + templatePath);
+      return 2;
+  }
+  if (action === "written" || action === "overwritten") {
+    console.log("");
+    printInfo("Pr\xF3ximos pasos:");
+    printDim(`  1. Commit + push el archivo: cd ${repoRoot} && git add ${targetRelPath} && git commit -m "ci: install HDU transitions" && git push`);
+    printDim(`  2. Configurar el bot token en el provider:`);
+    if (provider === "gitlab") {
+      printDim("     GitLab \u2192 Project Settings \u2192 CI/CD \u2192 Variables \u2192 HDU_BOT_TOKEN (write_repository)");
+    } else {
+      printDim("     GitHub \u2192 Settings \u2192 Secrets and variables \u2192 Actions \u2192 HDU_BOT_TOKEN (repo)");
+    }
+    printDim(`  3. Ver la gu\xEDa completa: ${resolveTemplatePath("README.md") ?? "templates/ci/README.md"}`);
+  }
+  return 0;
+}
+
 // src/commands/client-new.ts
 import { execSync as execSync6 } from "child_process";
-import { existsSync as existsSync30, mkdirSync as mkdirSync18, rmSync as rmSync3 } from "fs";
-import * as path30 from "path";
+import { existsSync as existsSync31, mkdirSync as mkdirSync19, rmSync as rmSync3 } from "fs";
+import * as path31 from "path";
 import * as os3 from "os";
 import { input as input3, password, select as select3, confirm as confirm2 } from "@inquirer/prompts";
 var isTTY9 = process.stdout.isTTY;
@@ -6107,7 +6230,7 @@ Onboarding del cliente: ${slug}
   }
   const cacheDir = getClientCacheDir(slug);
   const cloneUrl = embedTokenInUrl(contextRepoUrl, gitToken, provider);
-  if (existsSync30(cacheDir)) {
+  if (existsSync31(cacheDir)) {
     try {
       runGit4("git pull --ff-only", cacheDir);
       if (!jsonMode) printDim(`Cache local ya exist\xEDa, pull OK: ${cacheDir}`);
@@ -6116,9 +6239,9 @@ Onboarding del cliente: ${slug}
       rmSync3(cacheDir, { recursive: true, force: true });
     }
   }
-  if (!existsSync30(cacheDir)) {
-    const parentDir = path30.dirname(cacheDir);
-    if (!existsSync30(parentDir)) mkdirSync18(parentDir, { recursive: true });
+  if (!existsSync31(cacheDir)) {
+    const parentDir = path31.dirname(cacheDir);
+    if (!existsSync31(parentDir)) mkdirSync19(parentDir, { recursive: true });
     try {
       runGit4(`git clone "${cloneUrl}" "${cacheDir}"`);
       if (!jsonMode) printOk(`Cache local: ${cacheDir}`);
@@ -6146,7 +6269,7 @@ Onboarding del cliente: ${slug}
   if (!jsonMode) printOk("Registry + credentials guardados (~/.devflow/)");
   try {
     const markerPath = getContextRepoMarkerPath(cacheDir);
-    if (!existsSync30(markerPath) || opts.yes) {
+    if (!existsSync31(markerPath) || opts.yes) {
       saveContextRepoMarker(cacheDir, {
         kind: "context-repo",
         schema_version: "1.1",
@@ -6214,7 +6337,7 @@ function embedTokenInUrl(url, token, provider) {
 
 // src/commands/client-publish.ts
 import { execSync as execSync7 } from "child_process";
-import { existsSync as existsSync31 } from "fs";
+import { existsSync as existsSync32 } from "fs";
 function runGit5(cmd, cwd) {
   return execSync7(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
 }
@@ -6245,7 +6368,7 @@ async function runClientPublish(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync31(cacheDir)) {
+  if (!existsSync32(cacheDir)) {
     const err2 = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada: ${cacheDir}`,
@@ -6383,7 +6506,7 @@ Generado por dd-cli client publish (S3-4).`;
 }
 
 // src/commands/client-show.ts
-import { existsSync as existsSync32 } from "fs";
+import { existsSync as existsSync33 } from "fs";
 function ageInHours(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -6448,7 +6571,7 @@ async function runClientShow(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  const cacheExists = existsSync32(cacheDir);
+  const cacheExists = existsSync33(cacheDir);
   const state = readClientState(slug);
   const stateName = state?.state ?? "UNKNOWN";
   const isStale = ageInHours(entry.last_synced) > 24;
@@ -6566,7 +6689,7 @@ async function runClientShow(slug, opts = {}) {
 }
 
 // src/commands/client-list.ts
-import { existsSync as existsSync33, readdirSync as readdirSync8 } from "fs";
+import { existsSync as existsSync34, readdirSync as readdirSync8 } from "fs";
 function ageInHours2(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -6599,7 +6722,7 @@ function listClients() {
     const cacheDir = getClientCacheDir(entry.slug);
     const state = readClientState(entry.slug);
     let appsCount = 0;
-    if (existsSync33(cacheDir)) {
+    if (existsSync34(cacheDir)) {
       try {
         const catalog = loadCatalog(cacheDir);
         appsCount = catalog?.apps.length ?? 0;
@@ -6646,7 +6769,7 @@ async function runHome(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const clients = listClients();
   const skillsDir = getClaudeSkillsDir();
-  const skillsCount = existsSync33(skillsDir) ? readdirSync8(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
+  const skillsCount = existsSync34(skillsDir) ? readdirSync8(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
   const claudeOk = isClaudeCodeInstalled();
   let activeSession = null;
   const projectRoot = findDevFlowProjectRoot();
@@ -6705,7 +6828,7 @@ async function runHome(opts = {}) {
 }
 
 // src/commands/client-refresh.ts
-import { existsSync as existsSync34 } from "fs";
+import { existsSync as existsSync35 } from "fs";
 function discoveryRepoToCatalogApp(repo) {
   const authProfile = repo.auth_pattern === "unknown" ? null : repo.auth_pattern;
   return CatalogAppSchema.parse({
@@ -6817,7 +6940,7 @@ async function runClientRefresh(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync34(cacheDir)) {
+  if (!existsSync35(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada: ${cacheDir}`,
@@ -6974,8 +7097,8 @@ async function readKeyFiles2(provider, repoIdOrSlug, branch, concurrency) {
 
 // src/commands/client-onboard-dev.ts
 import { execSync as execSync8 } from "child_process";
-import { existsSync as existsSync35, mkdirSync as mkdirSync19, rmSync as rmSync4 } from "fs";
-import * as path31 from "path";
+import { existsSync as existsSync36, mkdirSync as mkdirSync20, rmSync as rmSync4 } from "fs";
+import * as path32 from "path";
 import { input as input4, password as password2 } from "@inquirer/prompts";
 var isTTY10 = process.stdout.isTTY;
 function runGit6(cmd, cwd) {
@@ -7095,7 +7218,7 @@ Setup local para ${slug}
   if (!jsonMode) printOk(`Token v\xE1lido \u2014 usuario ${tokenCheck.user ?? "desconocido"}`);
   const cacheDir = getClientCacheDir(slug);
   const cloneUrl = embedTokenInUrl2(contextUrl, gitToken, provider);
-  if (existsSync35(cacheDir)) {
+  if (existsSync36(cacheDir)) {
     try {
       runGit6("git pull --ff-only", cacheDir);
       if (!jsonMode) printDim(`Cache local ya exist\xEDa, pull OK: ${cacheDir}`);
@@ -7104,9 +7227,9 @@ Setup local para ${slug}
       rmSync4(cacheDir, { recursive: true, force: true });
     }
   }
-  if (!existsSync35(cacheDir)) {
-    const parentDir = path31.dirname(cacheDir);
-    if (!existsSync35(parentDir)) mkdirSync19(parentDir, { recursive: true });
+  if (!existsSync36(cacheDir)) {
+    const parentDir = path32.dirname(cacheDir);
+    if (!existsSync36(parentDir)) mkdirSync20(parentDir, { recursive: true });
     try {
       runGit6(`git clone "${cloneUrl}" "${cacheDir}"`);
       if (!jsonMode) printOk(`Cache local: ${cacheDir}`);
@@ -7139,7 +7262,7 @@ Setup local para ${slug}
   setClientCredentials(slug, creds);
   if (!jsonMode) printOk("Cliente registrado en esta m\xE1quina (~/.devflow/registry.yml + credentials.yml)");
   const skillsDir = getClaudeSkillsDir();
-  const skillsInstalled = existsSync35(skillsDir);
+  const skillsInstalled = existsSync36(skillsDir);
   if (!skillsInstalled && !jsonMode) {
     printWarn("Las skills DevFlow IA NO est\xE1n instaladas en esta m\xE1quina.");
     printDim("  Para instalarlas: dd-cli skills install");
@@ -7229,7 +7352,7 @@ async function runErrorCodes(opts = {}) {
 }
 
 // src/commands/hdu-cmd.ts
-import { existsSync as existsSync36 } from "fs";
+import { existsSync as existsSync37 } from "fs";
 import { input as input5 } from "@inquirer/prompts";
 var isTTY11 = process.stdout.isTTY;
 function resolveCacheDir(clientSlug) {
@@ -7245,7 +7368,7 @@ function resolveCacheDir(clientSlug) {
     };
   }
   const cacheDir = getClientCacheDir(clientSlug);
-  if (!existsSync36(cacheDir)) {
+  if (!existsSync37(cacheDir)) {
     return {
       ok: false,
       error: {
@@ -7625,7 +7748,7 @@ async function runHduIndexCmd(opts = {}) {
 }
 
 // src/commands/hdu-next.ts
-import { existsSync as existsSync37 } from "fs";
+import { existsSync as existsSync38 } from "fs";
 var PRIORITY_SCORE = {
   "cr\xEDtica": 100,
   "alta": 50,
@@ -7698,7 +7821,7 @@ async function runHduNext(opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(opts.client);
-  if (!existsSync37(cacheDir)) {
+  if (!existsSync38(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada para ${opts.client}.`
@@ -7783,8 +7906,175 @@ async function runHduNext(opts = {}) {
   return 0;
 }
 
+// src/commands/hdu-apply-merge.ts
+import { execSync as execSync9 } from "child_process";
+import { existsSync as existsSync39 } from "fs";
+import * as path33 from "path";
+function runGit7(cmd, cwd) {
+  return execSync9(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+}
+function getChangedHdusFilesFromHead(repoRoot) {
+  try {
+    let cmd = "git diff --name-only HEAD~1 HEAD";
+    try {
+      runGit7("git rev-parse HEAD~1", repoRoot);
+    } catch {
+      cmd = "git diff --name-only HEAD";
+    }
+    const files = runGit7(cmd, repoRoot).split("\n").filter(Boolean);
+    return files.filter((f) => f.startsWith("hdus/") && f.endsWith(".md") && !path33.basename(f).startsWith("_"));
+  } catch {
+    return [];
+  }
+}
+function getCommitAuthorEmail(repoRoot) {
+  try {
+    return runGit7("git log -1 --format=%ae", repoRoot);
+  } catch {
+    return null;
+  }
+}
+async function runHduApplyMerge(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const repoRoot = path33.resolve(opts.path ?? process.cwd());
+  if (!existsSync39(getHdusDir(repoRoot))) {
+    const e = {
+      code: "CONTEXT_REPO_INVALID",
+      message: `No hay hdus/ en ${repoRoot}. \xBFEst\xE1s en un context repo?`,
+      recovery_hints: [`Valid\xE1: dd-cli context validate ${repoRoot}`]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "hdu apply-merge", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const changed = getChangedHdusFilesFromHead(repoRoot);
+  if (changed.length === 0) {
+    if (jsonMode) {
+      emitJson(jsonSuccess("hdu apply-merge", {
+        repo_root: repoRoot,
+        actions: [],
+        applied: false,
+        committed: false
+      }));
+    }
+    printDim("No hay archivos hdus/*.md cambiados en HEAD.");
+    return 0;
+  }
+  const allHdus = listHdus(repoRoot);
+  const apply = !!opts.apply;
+  const by = opts.by ?? getCommitAuthorEmail(repoRoot) ?? "ci@devflow-ia";
+  const actions = [];
+  for (const filename of changed) {
+    const basename4 = path33.basename(filename);
+    const hdu = allHdus.find((h) => h.filename === basename4);
+    if (!hdu) {
+      printDim(`  (skip) ${basename4} \u2014 no parsea como HDU`);
+      continue;
+    }
+    const fromStatus = hdu.frontmatter.status;
+    if (fromStatus !== "draft") {
+      printDim(`  (skip) ${hdu.frontmatter.id} \u2014 ya est\xE1 en ${fromStatus}`);
+      continue;
+    }
+    if (!canHduTransitionTo(fromStatus, "approved")) {
+      continue;
+    }
+    actions.push({
+      hdu_id: hdu.frontmatter.id,
+      filename: basename4,
+      from: fromStatus,
+      to: "approved",
+      applied: apply
+    });
+    if (apply) {
+      hdu.frontmatter.status = "approved";
+      hdu.frontmatter.approved_by = by;
+      hdu.frontmatter.approved_at = (/* @__PURE__ */ new Date()).toISOString();
+      if (!hdu.frontmatter.dev_type_locked && hdu.frontmatter.dev_type) {
+        hdu.frontmatter.dev_type_locked = true;
+        hdu.frontmatter.dev_type_source = "pr-merge";
+      }
+      saveHdu(repoRoot, hdu);
+      appendTransition(repoRoot, {
+        ts: (/* @__PURE__ */ new Date()).toISOString(),
+        hdu: hdu.frontmatter.id,
+        from: fromStatus,
+        to: "approved",
+        by,
+        reason: "merge to main approved by code review",
+        via: "pr-merge"
+      });
+    }
+  }
+  if (apply && actions.length > 0) {
+    regenerateHduIndex(repoRoot);
+  }
+  let committed = false;
+  if (apply && opts.commit && actions.length > 0) {
+    try {
+      runGit7("git add hdus/", repoRoot);
+      try {
+        runGit7("git config user.email", repoRoot);
+      } catch {
+        runGit7('git config user.email "ci@devflow-ia"', repoRoot);
+      }
+      try {
+        runGit7("git config user.name", repoRoot);
+      } catch {
+        runGit7('git config user.name "DevFlow IA CI"', repoRoot);
+      }
+      const msg = `chore(hdus): apply post-merge transitions
+
+${actions.map((a) => `- ${a.hdu_id}: ${a.from} \u2192 ${a.to}`).join("\n")}
+
+Generado por dd-cli hdu apply-merge (S5-4).`;
+      runGit7(`git -c commit.gpgsign=false commit -m "${msg.replace(/"/g, '\\"')}"`, repoRoot);
+      runGit7("git push origin HEAD", repoRoot);
+      committed = true;
+    } catch (e) {
+      if (jsonMode) {
+        emitJson(jsonError({
+          command: "hdu apply-merge",
+          code: "GIT_PUSH_FAILED",
+          message: `Push de transitions fall\xF3: ${e instanceof Error ? e.message : String(e)}`,
+          context: { actions, applied: true, committed: false },
+          recovery_hints: [
+            "Verific\xE1 que el bot token tenga permisos de push a main",
+            "Verific\xE1 branch protection (debe permitir bypass para el bot)"
+          ]
+        }));
+      }
+      printErr(`git push fall\xF3: ${e instanceof Error ? e.message : String(e)}`);
+      return 1;
+    }
+  }
+  if (jsonMode) {
+    emitJson(jsonSuccess("hdu apply-merge", {
+      repo_root: repoRoot,
+      changed_files: changed,
+      actions,
+      applied: apply,
+      committed
+    }));
+  }
+  console.log("");
+  console.log(bold(`HDU apply-merge en ${repoRoot}`));
+  for (const a of actions) {
+    const marker = a.applied ? printOk : printInfo;
+    marker(`  ${a.hdu_id}: ${a.from} \u2192 ${a.to}${apply ? "" : " (dry-run)"}`);
+  }
+  if (actions.length === 0) printDim("  Nada para aplicar.");
+  if (apply && opts.commit) {
+    if (committed) printOk("Commit + push hechos.");
+  } else if (actions.length > 0 && !apply) {
+    console.log("");
+    printDim("Para aplicar: dd-cli hdu apply-merge --apply --commit");
+  }
+  return 0;
+}
+
 // src/commands/stats-cmd.ts
-import { existsSync as existsSync38 } from "fs";
+import { existsSync as existsSync40 } from "fs";
 function parsePeriodToMs(period) {
   if (period === "all") return null;
   const match = period.match(/^(\d+)d$/);
@@ -7837,7 +8127,7 @@ async function runStats(opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(opts.client);
-  if (!existsSync38(cacheDir)) {
+  if (!existsSync40(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada para ${opts.client}.`
@@ -7964,10 +8254,10 @@ async function runStats(opts = {}) {
 }
 
 // src/commands/guide-cmd.ts
-import { existsSync as existsSync39, readFileSync as readFileSync23 } from "fs";
+import { existsSync as existsSync41, readFileSync as readFileSync24 } from "fs";
 import { spawnSync } from "child_process";
-import * as path32 from "path";
-import { fileURLToPath as fileURLToPath5 } from "url";
+import * as path34 from "path";
+import { fileURLToPath as fileURLToPath6 } from "url";
 var TOPICS = {
   "hdu": "guia-hdu-flow.md",
   "hdus": "guia-hdu-flow.md",
@@ -7976,14 +8266,14 @@ var TOPICS = {
 };
 function resolveDocsPath(filename) {
   try {
-    const here = path32.dirname(fileURLToPath5(import.meta.url));
+    const here = path34.dirname(fileURLToPath6(import.meta.url));
     const candidates = [
-      path32.resolve(here, "../docs", filename),
-      path32.resolve(here, "../../docs", filename),
-      path32.resolve(here, "../../../docs", filename)
+      path34.resolve(here, "../docs", filename),
+      path34.resolve(here, "../../docs", filename),
+      path34.resolve(here, "../../../docs", filename)
     ];
     for (const c3 of candidates) {
-      if (existsSync39(c3)) return c3;
+      if (existsSync41(c3)) return c3;
     }
   } catch {
   }
@@ -8037,7 +8327,7 @@ async function runGuide(topic, opts = {}) {
     spawnSync("less", ["-R", docPath], { stdio: "inherit" });
     return 0;
   }
-  const content = readFileSync23(docPath, "utf-8");
+  const content = readFileSync24(docPath, "utf-8");
   process.stdout.write(content);
   if (!process.stdout.isTTY) return 0;
   console.log("");
@@ -8046,7 +8336,7 @@ async function runGuide(topic, opts = {}) {
 }
 
 // src/commands/today-cmd.ts
-import { existsSync as existsSync40 } from "fs";
+import { existsSync as existsSync42 } from "fs";
 function ageInHours3(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -8076,7 +8366,7 @@ async function runToday(opts = {}) {
   const queue = [];
   for (const entry of Object.values(registry.clients)) {
     const cacheDir = getClientCacheDir(entry.slug);
-    if (!existsSync40(cacheDir)) continue;
+    if (!existsSync42(cacheDir)) continue;
     let hdus;
     try {
       hdus = listHdus(cacheDir);
@@ -8112,7 +8402,7 @@ async function runToday(opts = {}) {
     }
     if (user) {
       const cacheDir = getClientCacheDir(entry.slug);
-      if (!existsSync40(cacheDir)) continue;
+      if (!existsSync42(cacheDir)) continue;
       let hdus;
       try {
         hdus = listHdus(cacheDir);
@@ -8182,8 +8472,8 @@ async function runToday(opts = {}) {
 }
 
 // src/commands/inbox-cmd.ts
-import { existsSync as existsSync41, mkdirSync as mkdirSync20, readFileSync as readFileSync24, appendFileSync as appendFileSync4, writeFileSync as writeFileSync17 } from "fs";
-import * as path33 from "path";
+import { existsSync as existsSync43, mkdirSync as mkdirSync21, readFileSync as readFileSync25, appendFileSync as appendFileSync4, writeFileSync as writeFileSync18 } from "fs";
+import * as path35 from "path";
 import { z as z10 } from "zod";
 var InboxEventSchema = z10.object({
   ts: z10.string(),
@@ -8196,12 +8486,12 @@ var InboxEventSchema = z10.object({
   // generado al append si no viene
 });
 function getInboxPath() {
-  return path33.join(getDevflowGlobalDir(), "inbox.jsonl");
+  return path35.join(getDevflowGlobalDir(), "inbox.jsonl");
 }
 function readInbox() {
   const p = getInboxPath();
-  if (!existsSync41(p)) return [];
-  return readFileSync24(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
+  if (!existsSync43(p)) return [];
+  return readFileSync25(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
     try {
       return InboxEventSchema.parse(JSON.parse(l));
     } catch {
@@ -8211,15 +8501,15 @@ function readInbox() {
 }
 function writeInbox(events) {
   const p = getInboxPath();
-  const dir = path33.dirname(p);
-  if (!existsSync41(dir)) mkdirSync20(dir, { recursive: true });
+  const dir = path35.dirname(p);
+  if (!existsSync43(dir)) mkdirSync21(dir, { recursive: true });
   const content = events.map((e) => JSON.stringify(InboxEventSchema.parse(e))).join("\n") + "\n";
-  writeFileSync17(p, content, "utf-8");
+  writeFileSync18(p, content, "utf-8");
 }
 function appendInboxEvent(event) {
   const p = getInboxPath();
-  const dir = path33.dirname(p);
-  if (!existsSync41(dir)) mkdirSync20(dir, { recursive: true });
+  const dir = path35.dirname(p);
+  if (!existsSync43(dir)) mkdirSync21(dir, { recursive: true });
   const full = InboxEventSchema.parse({
     ts: event.ts ?? (/* @__PURE__ */ new Date()).toISOString(),
     read: event.read ?? false,
@@ -8495,6 +8785,14 @@ hduCmd.command("claim <id>").description("Auto-asignaci\xF3n del dev (atajo de a
     process.exit(10);
   }
 });
+hduCmd.command("apply-merge").description("CI job: detecta hdus/*.md cambiados en HEAD y propaga draft \u2192 approved.").option("--path <dir>", "Path al context repo (default cwd)").option("--apply", "Persiste los cambios. Sin esto, dry-run.", false).option("--commit", "git add + commit + push despu\xE9s de aplicar (cuando --apply)", false).option("--by <email>", "Actor para el transitions log (default: autor del \xFAltimo commit)").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runHduApplyMerge(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
 hduCmd.command("next").description("Sugiere la pr\xF3xima HDU para el dev (scoring).").option("--client <slug>", "Slug del cliente").option("--user <email>", "Email del dev").option("--explain", "Muestra breakdown del score", false).option("--json", "Output JSON", false).action(async (opts) => {
   try {
     process.exit(await runHduNext(opts));
@@ -8567,6 +8865,14 @@ var contextCmd = program.command("context").description("Operaciones sobre conte
 contextCmd.command("validate [path]").description("Valida la forma estructural del context repo (stack.yml, catalog, refs).").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (repoPath, opts) => {
   try {
     process.exit(await runContextValidate(repoPath, { json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+contextCmd.command("install-ci [path]").description("Provisiona el CI job para HDU transitions (S5-4). Detecta provider del marcador .context-repo.yml.").option("--force", "Sobreescribe si el archivo ya existe con contenido distinto.", false).option("--provider <type>", "Override del provider detectado (gitlab|github)").option("--json", "Output JSON", false).action(async (repoPath, opts) => {
+  try {
+    process.exit(await runContextInstallCi(repoPath, opts));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

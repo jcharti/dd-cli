@@ -1,0 +1,32 @@
+# GitLab CI job para propagar transiciones HDU al mergear PR (S5-4).
+# Detecta hdus/*.md cambiados en el último commit y aplica draft → approved.
+#
+# Pegá este contenido en el .gitlab-ci.yml del context repo. Si ya hay
+# .gitlab-ci.yml, mergeá el bloque `apply-hdu-transitions:` con tu config.
+#
+# Variables requeridas:
+#   HDU_BOT_TOKEN  PAT con scope `write_repository` (Project Settings → CI/CD → Variables)
+#                  El bot debe ser Maintainer o tener bypass de branch protection en main.
+
+stages:
+  - hdu-transitions
+
+apply-hdu-transitions:
+  stage: hdu-transitions
+  image: node:22-alpine
+  # Solo corre en push a main + cuando cambiaron archivos hdus/*.md.
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_COMMIT_MESSAGE !~ /apply post-merge transitions/'
+      changes:
+        - hdus/*.md
+  variables:
+    GIT_DEPTH: 2  # necesitamos HEAD~1 para el diff
+  before_script:
+    - apk add --no-cache git
+    - npm install -g '@devflow-ia/cli'
+    - git config user.email "ci@devflow-ia.local"
+    - git config user.name "DevFlow IA CI"
+    # Authenticate para el push de vuelta.
+    - git remote set-url origin "https://oauth2:${HDU_BOT_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+  script:
+    - dd-cli hdu apply-merge --apply --commit --by="${GITLAB_USER_EMAIL:-ci@devflow-ia}"

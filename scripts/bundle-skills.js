@@ -88,3 +88,19 @@ if (existsSync(docsSrc)) {
   }
   console.log(`✓ ${docsCount} guías copiadas → dist/docs/`);
 }
+
+// S5-4: copiar templates/ci/ a dist/templates/ci/ para `dd-cli context install-ci`.
+const ciTplSrc = path.resolve(__dirname, '..', 'templates', 'ci');
+if (existsSync(ciTplSrc)) {
+  const ciTplDest = path.resolve(__dirname, '..', 'dist', 'templates', 'ci');
+  if (!existsSync(ciTplDest)) mkdirSync(ciTplDest, { recursive: true });
+  let ciCount = 0;
+  for (const entry of readdirSync(ciTplSrc)) {
+    const srcP = path.join(ciTplSrc, entry);
+    if (statSync(srcP).isFile()) {
+      copyFileSync(srcP, path.join(ciTplDest, entry));
+      ciCount++;
+    }
+  }
+  console.log(`✓ ${ciCount} CI templates copiados → dist/templates/ci/`);
+}
