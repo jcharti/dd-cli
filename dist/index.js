@@ -1,3 +1,8 @@
+// src/index.ts
+import { readFileSync as readFileSync9 } from "fs";
+import * as path10 from "path";
+import { fileURLToPath } from "url";
+
 // src/types/dev-type.ts
 var DEV_TYPES = [
   "greenfield",
@@ -1693,7 +1698,26 @@ function defaultBaseUrlFor(type, raw) {
 }
 
 // src/index.ts
-var CLI_VERSION = "0.5.1";
+function readPkgVersion() {
+  try {
+    const here = path10.dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+      path10.resolve(here, "../package.json"),
+      path10.resolve(here, "../../package.json"),
+      path10.resolve(here, "../../../package.json")
+    ];
+    for (const c of candidates) {
+      try {
+        const pkg = JSON.parse(readFileSync9(c, "utf-8"));
+        if (typeof pkg.version === "string") return pkg.version;
+      } catch {
+      }
+    }
+  } catch {
+  }
+  return "0.0.0-unknown";
+}
+var CLI_VERSION = readPkgVersion();
 export {
   APP_ORIGINS,
   APP_ROLES,

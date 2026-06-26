@@ -11,10 +11,9 @@
  *   --check-api       prueba la conexión a la API git (lento, off by default)
  *   --json            output JSON para scripts
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { readdirSync } from 'node:fs';
 import {
   getClaudeHome,
   getClaudeGlobalSettingsPath,
@@ -68,6 +67,27 @@ function formatAge(isoDate: string | null): string {
 
 // ── Chequeo de skills ──────────────────────────────────────────────
 
+/**
+ * S4-7: cuenta skills recursivamente (incluye opsx/* y futuros subdirectorios).
+ * Antes contaba sólo top-level — reportaba "16 skills" cuando hay 22.
+ */
+function countSkills(dir: string): number {
+  if (!existsSync(dir)) return 0;
+  let count = 0;
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry);
+    try {
+      const stat = statSync(full);
+      if (stat.isDirectory()) {
+        count += countSkills(full);
+      } else if (entry.endsWith('.md')) {
+        count++;
+      }
+    } catch { /* skip */ }
+  }
+  return count;
+}
+
 function checkSkills(): { status: 'ok' | 'warn' | 'err'; detail: string } {
   const skillsDir = getClaudeSkillsDir();
   if (!existsSync(skillsDir)) {
@@ -81,9 +101,7 @@ function checkSkills(): { status: 'ok' | 'warn' | 'err'; detail: string } {
   if (installed !== CLI_VERSION) {
     return { status: 'warn', detail: `v${installed} instalada, v${CLI_VERSION} disponible — ejecuta: dd-cli skills install` };
   }
-  const skills = existsSync(skillsDir)
-    ? readdirSync(skillsDir).filter((f: string) => f.endsWith('.md')).length
-    : 0;
+  const skills = countSkills(skillsDir);
   return { status: 'ok', detail: `${skills} skills · v${installed}` };
 }
 

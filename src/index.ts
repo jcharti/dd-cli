@@ -3,6 +3,10 @@
  * Permite que otras herramientas (skills, tests, plataforma) consuman
  * la lógica core sin invocar el binario.
  */
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 export * from './types/dev-type.js';
 export * from './types/session.js';
 export * from './flow-state/detect.js';
@@ -31,4 +35,32 @@ export { GitLabProvider } from './providers/gitlab.js';
 export { GitHubProvider } from './providers/github.js';
 export { createProvider, inferProviderType } from './providers/factory.js';
 
-export const CLI_VERSION = '0.5.1';
+/**
+ * S4-7: lee la versión dinámicamente del package.json.
+ * Resuelve A-2 del rediseño: antes había `CLI_VERSION = '0.5.1'`
+ * hardcoded que drifteaba del package.json cuando se bumpeaba.
+ *
+ * Busca el package.json relativo a este módulo. Soporta:
+ *   - dev (src/index.ts)      → ../package.json
+ *   - prod build (dist/...)   → ../package.json
+ *   - bundled (dist/bin/...)  → ../../package.json
+ */
+function readPkgVersion(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+      path.resolve(here, '../package.json'),
+      path.resolve(here, '../../package.json'),
+      path.resolve(here, '../../../package.json'),
+    ];
+    for (const c of candidates) {
+      try {
+        const pkg = JSON.parse(readFileSync(c, 'utf-8')) as { version?: string };
+        if (typeof pkg.version === 'string') return pkg.version;
+      } catch { /* try next */ }
+    }
+  } catch { /* fallback */ }
+  return '0.0.0-unknown';
+}
+
+export const CLI_VERSION = readPkgVersion();

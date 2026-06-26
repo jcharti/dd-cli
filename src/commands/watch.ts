@@ -10,7 +10,7 @@
  *
  * Referencia: dd-cli-spec.md §3.4 · wireframes/cli-ux-decisiones.md §Superficie 1
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import * as path from 'node:path';
 import { getProjectRoot, getDevflowDir } from '../utils/paths.js';
 import { loadSession } from '../utils/session-io.js';
@@ -53,7 +53,6 @@ function activeChangeName(projectRoot: string): string | null {
   try {
     const changes = path.join(projectRoot, 'openspec', 'changes');
     if (!existsSync(changes)) return null;
-    const { readdirSync, statSync } = require('node:fs');
     const entries = readdirSync(changes).filter((e: string) => {
       return statSync(path.join(changes, e)).isDirectory() &&
              existsSync(path.join(changes, e, 'tasks.md'));

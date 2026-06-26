@@ -1,6 +1,6 @@
 {
   "name": "@devflow-ia/cli",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "DevFlow IA CLI — dd-cli, asistente de terminal para el método DevFlow IA",
   "license": "MIT",
   "type": "module",

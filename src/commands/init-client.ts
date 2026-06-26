@@ -12,7 +12,7 @@
  *   5. Genera .devflow/config.yml
  *   6. Ejecuta el init normal (skills, hooks, CLAUDE.md)
  */
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import { select, input, confirm } from '@inquirer/prompts';
@@ -71,7 +71,6 @@ function syncCache(slug: string, contextUrl: string): boolean {
   const cacheDir = getClientCacheDir(slug);
   try {
     if (!existsSync(cacheDir)) {
-      const { mkdirSync } = require('node:fs');
       mkdirSync(path.dirname(cacheDir), { recursive: true });
       execSync(`git clone "${contextUrl}" "${cacheDir}"`, { stdio: 'pipe' });
     } else {
