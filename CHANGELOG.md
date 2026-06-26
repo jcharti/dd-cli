@@ -212,18 +212,28 @@ invoca a través de skills que componen el CLI por debajo.
   (mediana/p90), cycle time, mix dev_type, por dev con `--by=dev`.
   Forward-compat con app web (event-sourcing puro).
 
-#### Added — CI automation
+#### Added — CI automation (opcional, escape hatch para flujo PR estricto)
 
-- **S5-4**: `dd-cli hdu apply-merge` — corre en CI post-merge a main,
-  detecta `hdus/*.md` cambiados, propaga `draft → approved` con
-  `via: pr-merge`. Idempotente; `--dry-run` por default; con `--apply
-  --commit` empuja de vuelta.
+> **Importante**: el flujo de aprobación **recomendado** es vía skills
+> (`/devflow-ia:hdu-board` → `dd-cli hdu approve` por debajo). El CI es un
+> **escape hatch opcional** para clientes con compliance estricto que ya
+> usan PRs como mecanismo formal de aprobación (branch protection con
+> review obligatorio, audit trail por merge log de GitLab). Sin CI,
+> `/devflow-ia:hdu-board` cubre el caso conversando con Claude.
+
+- **S5-4**: `dd-cli hdu apply-merge` — comando que el CI invoca post-merge
+  a main para propagar `draft → approved` con `via: pr-merge`. Detecta
+  `hdus/*.md` cambiados, idempotente, `--dry-run` por default.
 - **S5-4**: `dd-cli context install-ci [path]` — provisiona el workflow
-  correcto según provider detectado. Templates incluidos:
-  `templates/ci/github-hdu-transitions.yml` y
-  `templates/ci/gitlab-hdu-transitions.yml` con anti-loop (filtra commits
-  del propio bot), docs de setup del bot token en
-  `templates/ci/README.md`.
+  correcto según provider detectado **solo si el cliente lo necesita**.
+  Templates incluidos: `templates/ci/github-hdu-transitions.yml` y
+  `templates/ci/gitlab-hdu-transitions.yml` con anti-loop, docs de setup
+  del bot token en `templates/ci/README.md`.
+
+  **Cuándo instalarlo:** sólo si la empresa cliente exige que la
+  aprobación oficial pase por merge de PR en GitLab/GitHub (típico en
+  enterprise con compliance). Para la mayoría de clientes,
+  `/devflow-ia:hdu-board` alcanza.
 
 #### Added — Skills HDU (D-8)
 

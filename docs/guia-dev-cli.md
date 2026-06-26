@@ -1,29 +1,50 @@
 # Guía del dev — `dd-cli`
 
-> **Para quién es esta guía:** si eres dev en un proyecto que usa DevFlow IA, acá está todo lo que necesitas saber para usar el CLI en tu trabajo diario. No necesitas haber leído ninguna documentación técnica previa.
+> **Para quién es esta guía:** si sos dev en un proyecto que usa DevFlow IA,
+> acá está todo lo que necesitás saber para usar el CLI en tu trabajo diario.
+> No requiere documentación técnica previa.
+>
+> **Versión:** v0.6.0 (junio 2026). Cambios mayores vs v0.5.x: surface
+> **skills-first** (decisión D-8 del rediseño), 4 skills nuevas para el
+> día a día del dev, namespace `dd-cli hdu` reemplaza `new-hdu`, HDUs
+> viven en el context repo del cliente. Detalle completo en `CHANGELOG.md`.
 
 ---
 
-## En dos líneas: qué hace `dd-cli`
+## En dos líneas: qué hace DevFlow IA en tu día
 
-`dd-cli` es el compañero de terminal que se conecta con Claude Code y mantiene el registro de tu trabajo. Te dice en qué paso del flujo estás, qué viene después, y hace que Claude te reciba con contexto cada vez que abres una sesión.
+**Modo skill-first (recomendado):** abrí Claude Code y conversá con skills.
+4 skills cubren tu día completo sin tipear comandos CLI.
 
-**Tú haces:** codear con Claude Code, ejecutar skills (`/new-spec`, `/opsx:apply`, etc.).
-**`dd-cli` hace:** recordar dónde estás, guiarte al próximo paso, mantener el estado de tu sesión.
+```
+mañana:        /devflow-ia:daily-standup     ver mi día
+decidir:       /devflow-ia:pick-next         qué HDU tomar
+arrancar:      /devflow-ia:start-work HDU-N  claim + start + abrir repo
+... codear con Claude (skills del método: /new-spec, /opsx:apply, etc.) ...
+cerrar día:    /devflow-ia:end-day           review/close/pausa + commit msg
+```
+
+**Modo CLI directo (escape hatch):** si preferís terminal o estás scripteando,
+los comandos viven por debajo de las skills. Los reportamos en este doc.
 
 ---
 
 ## Mapa mental rápido
 
 ```
-Tu terminal                    Claude Code
-──────────────                 ──────────────────────────────────
-dd-cli init          → setup   Claude lee .devflow/ al iniciar
-dd-cli start-session → inicio  Claude te saluda con contexto
-dd-cli status        → ¿dónde?
-dd-cli next          → ¿qué?   /new-spec  /opsx:propose  /opsx:apply
-dd-cli end-session   → cierre  /end-session (normalmente lo hace la skill)
-dd-cli watch         → barra   (pane separado, opcional)
+Tu terminal                          Claude Code (skill-first)
+──────────────                       ──────────────────────────────────────────
+dd-cli init                  → setup   Claude lee .devflow/ al iniciar
+dd-cli client onboard-dev    → cliente Setup local con tu PAT propio
+                                        (no compartir el del consultor / TL)
+
+dd-cli today                 → ¿hoy?  /devflow-ia:daily-standup
+dd-cli hdu next              → ¿qué?  /devflow-ia:pick-next
+dd-cli start-session         → inicio /devflow-ia:start-work HDU-N
+dd-cli status                → ¿dónde?
+dd-cli hdu review/close      → cierre /devflow-ia:end-day
+dd-cli inbox                 → eventos asincrónicos (notificaciones)
+dd-cli watch                 → barra detallada (pane separado, opcional)
 ```
 
 ---
@@ -32,11 +53,11 @@ dd-cli watch         → barra   (pane separado, opcional)
 
 ```bash
 # Instalar desde el release público
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.5.1/devflow-ia-cli-0.5.1.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.6.0/devflow-ia-cli-0.6.0.tgz
 
 # Verificar
 dd-cli --version
-# → 0.5.1
+# → 0.6.0
 
 # Activar la statusline en Claude Code (una sola vez por máquina)
 dd-cli install
@@ -44,53 +65,138 @@ dd-cli install
 ```
 
 > **¿Qué hace `dd-cli install`?**
-> Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese momento, Claude Code muestra en su barra el estado de tu sesión en cualquier proyecto. Es inteligente: si no estás en un proyecto DevFlow IA, solo muestra `DevFlow IA · v0.5.1 ready`.
-> Para desactivarla: `dd-cli uninstall`
+> Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese
+> momento, Claude Code muestra en su barra el estado de tu sesión en
+> cualquier proyecto. Si no estás en un proyecto DevFlow IA, solo muestra
+> `DevFlow IA · v0.6.0 ready`. Para desactivarla: `dd-cli uninstall`.
+
+### Setup del cliente (una vez por máquina por empresa)
+
+```bash
+# Tu PAT propio con scope read-only (NO compartir el del consultor / TL)
+# GitLab: read_repository / read_api
+# GitHub: repo:read o public_repo si es público
+dd-cli client onboard-dev <empresa> \
+  --context-url=<URL del context repo, te la pasa el TL> \
+  --git-token=<tu PAT>
+```
+
+Esto clona el context repo del cliente a `~/.devflow/clients/<empresa>/`
+y registra el cliente local. Cada dev tiene su propio token
+(decisión D-7 del rediseño: tokens individuales por audit y revocación
+granular).
 
 ---
 
 ## 2. Setup en tu proyecto (una sola vez)
 
-Cuando llegas a un proyecto nuevo con DevFlow IA:
+Cuando llegás a un proyecto nuevo con DevFlow IA:
 
 ```bash
 cd mi-proyecto
-dd-cli init
+dd-cli init --client=<empresa>
 ```
 
-**Qué hace `dd-cli init`:**
+**Qué hace `dd-cli init --client=<empresa>`:**
 
 ```
 DevFlow IA — init
   Proyecto: /Users/jorge/proyectos/mi-proyecto
 
 ✓ Detectado Claude Code en /Users/jorge/.claude
-✓ Creado .devflow/ con session.json inicial (schema_version: 2)
+✓ Conectado al cliente <empresa> (catalog: N apps disponibles)
+✓ App del repo detectada en el catálogo: mi-app
+✓ Creado .devflow/config.yml (identidad repo↔cliente)
+✓ Creado .devflow/session.json inicial (schema_version: 2)
 ✓ Skills instaladas en ~/.claude/commands/devflow-ia
-  20 skills (v0.5.1)
+  28 skills (v0.6.0)
 ✓ Hooks configurados en .claude/settings.json
-✓ CLAUDE.md generado con auto-onboarding
-  Edita las variables {{...}} con los datos del proyecto
+✓ CLAUDE.md generado con contexto del cliente embebido
 
 Listo. Abre Claude Code en este directorio.
-Tip: para ver la statusline en Claude Code → ejecuta una sola vez: dd-cli install
 ```
 
-Después de esto, edita `CLAUDE.md` en la raíz del proyecto y reemplaza las variables:
-```markdown
-STACK: NestJS 11 + Angular 21 + PostgreSQL
-BACKEND_FRAMEWORK: NestJS
-FRONTEND_FRAMEWORK: Angular
-DB: PostgreSQL
-```
+> El init detecta automáticamente si tu repo está catalogado en el
+> `catalog.yml` del cliente. Si lo está, completa todo (tipo, auth_profile,
+> ci_cd_profile) sin preguntar. Si no, te pide los datos y queda registrado.
 
-Eso es todo. No necesitas volver a correr `dd-cli init` en ese proyecto a menos que actualices la versión del CLI.
+Si el directorio actual es un **context repo del cliente** (no un repo
+de código), el comando aborta con mensaje útil — `dd-cli init` no aplica
+ahí. Para validar el context repo: `dd-cli context validate`.
+
+No necesitás volver a correr `dd-cli init` en ese proyecto a menos que
+actualices la versión del CLI.
 
 ---
 
-## 3. Tu primera sesión
+## 3. Tu primera sesión (modo skill-first recomendado)
 
-### 3.1 Inicia la sesión con tu HDU
+### 3.1 Abrir Claude Code y ver tu día
+
+```bash
+claude
+❯ /devflow-ia:daily-standup
+```
+
+La skill compone `dd-cli today` + `dd-cli inbox` y te muestra:
+
+```
+Today  viernes, 26 de junio
+jorge@empresa.cl
+
+TU QUEUE (3 HDUs aprobadas)
+  HDU-128    alta     <empresa>  Auth SSO portal cliente
+  HDU-129    media    <empresa>  Dashboard ventas Q3
+  HDU-131    baja     <empresa>  Refactor ServiceCobranzas
+
+ALERTAS
+  · HDU-130 (<empresa>) en in-progress
+```
+
+### 3.2 Decidir qué HDU tomar
+
+```
+❯ /devflow-ia:pick-next
+```
+
+La skill llama `dd-cli hdu next --explain` y narra el scoring:
+
+```
+Te sugiero: HDU-128 · Auth SSO portal cliente
+  prioridad: alta · dev_type: brownfield-feature · apps: app-bff-cuentas
+
+Score breakdown:
+  prioridad:              50
+  app match:              15 (trabajaste app-bff-cuentas hace 3 días)
+  continuidad dev_type:   10 (igual que tu última cerrada)
+  total:                  75
+
+¿Arrancamos con HDU-128?
+```
+
+### 3.3 Arrancar el trabajo
+
+```
+❯ /devflow-ia:start-work HDU-128
+```
+
+La skill ejecuta por debajo:
+
+```
+✓ dd-cli hdu claim HDU-128 --client=<empresa> --user=jorge@empresa.cl
+✓ dd-cli hdu start HDU-128 --client=<empresa> --by=jorge@empresa.cl
+       HDU-128: approved → in-progress
+
+Te sugiero abrir el repo de código:
+  cd ~/work/app-bff-cuentas
+  dd-cli start-session HDU-128
+
+¿Lo abrimos?
+```
+
+### 3.4 CLI directo (alternativa)
+
+Si preferís terminal directo:
 
 ```bash
 dd-cli start-session HDU-128
@@ -372,20 +478,52 @@ Si prefieres invocar la skill manualmente, también funciona: `/devflow-ia:desig
 
 ---
 
-## 7. Al terminar el día
+## 7. Al terminar el día (v0.6+ skill-first)
 
-Lo normal es que la skill `/end-session` dentro de Claude Code lo haga todo (commit + push + resumen). Pero si cerraste el terminal sin ejecutarla:
+```
+❯ /devflow-ia:end-day
+```
+
+La skill pregunta qué pasó hoy y actúa según corresponda:
+
+```
+¿Cómo te fue con HDU-128?
+  1. Terminé, PR abierto/listo para review     → hdu review
+  2. Terminé, PR mergeado                       → hdu close
+  3. Avancé pero no terminé (pausa)             → solo end-session
+  4. Estoy bloqueado (anotar razón)             → end-session + inbox al TL
+```
+
+Si elegís 1 (review): la skill corre
 
 ```bash
+dd-cli hdu review HDU-128 --client=<empresa> --by=jorge@empresa.cl --reason="MR #43 abierto"
 dd-cli end-session
 ```
 
-```
-Sesión cerrada
+Y sugiere un commit message con trailer DevFlow:
 
-✓ Feature: HDU-128 · Autenticación SSO portal cliente
-✓ Duración: 3h 42m
-✓ Tasks: 4/6 completadas
+```
+feat: implementa auth SSO portal cliente
+
+Cierra parte de HDU-128 · Autenticación SSO portal cliente
+
+DevFlow-Type: brownfield-feature
+DevFlow-Session: 3h 42m
+```
+
+### CLI directo
+
+Si preferís terminal:
+
+```bash
+# Si abriste un PR:
+dd-cli hdu review HDU-128 --client=<empresa> --by=jorge@empresa.cl --reason="MR #43"
+dd-cli end-session
+
+# Si el PR ya mergeó:
+dd-cli hdu close HDU-128 --client=<empresa> --by=jorge@empresa.cl
+dd-cli end-session
 ```
 
 ---
@@ -557,90 +695,241 @@ dd-cli skills install
 
 ---
 
-## 11. Crear una HDU desde el CLI (sin la APP)
+## 11. Crear HDUs desde el dev (v0.6+)
 
-Si no tienes acceso a la APP de DevFlow IA, puedes crear HDUs directamente desde el CLI:
+> **Cambio importante vs v0.5.x:** las HDUs viven en el **context repo
+> del cliente** (`<empresa>-devflow-context/hdus/`), no en cada repo de
+> código. Esto resuelve el problema de "HDU que toca 3 apps, ¿en cuál
+> repo vive?" y permite cross-app por diseño.
 
-```bash
-dd-cli new-hdu "Autenticación SSO portal cliente"
-# → Crea docs/hdus/HDU-001-autenticacion-sso-portal-cliente.md desde el template
-# → Lanza Claude Code con /devflow-ia:design-hdu para refinarla
+### Vía skill (recomendado)
+
+```
+❯ /devflow-ia:new-hdu "Autenticación SSO portal cliente"
 ```
 
-El archivo creado tiene el frontmatter completo y el esqueleto estructurado. Claude lo completa junto contigo (Como / Quiero / Para / Criterios / Clasificación).
+La skill orquesta: pregunta apps afectadas, prioridad, dev_type
+sugerido; crea la HDU vía `dd-cli hdu new` en el context repo;
+opcionalmente lanza `/devflow-ia:design-hdu` para completar el contenido
+(Como/Quiero/Para/Criterios).
+
+### CLI directo
 
 ```bash
-dd-cli new-hdu "Mi feature" --no-claude   # crea el archivo sin lanzar Claude
-dd-cli new-feature "Mi feature"           # alias más corto
+dd-cli hdu new "Autenticación SSO portal cliente" \
+  --client=<empresa> \
+  --app=app-bff-cuentas \
+  --priority=alta \
+  --created-by=jorge@empresa.cl
 ```
 
-Una vez que la HDU está aprobada:
+Crea el archivo en `~/.devflow/clients/<empresa>/hdus/HDU-N-...md` con
+status `draft`. Después editás el cuerpo y el TL la aprueba vía
+`/devflow-ia:hdu-board` o `dd-cli hdu approve`.
+
+### Para hotfixes urgentes (v0.7+)
+
+Si el TL no está disponible y hay un incidente:
+
 ```bash
-dd-cli start-session HDU-001
+dd-cli hdu new "Hotfix prod incidente XYZ" \
+  --client=<empresa> --app=portal-web \
+  --direct --reason="prod down — INC-2026-06-26" \
+  --created-by=jorge@empresa.cl
 ```
+
+Crea la HDU directamente como `approved` con `via: direct-commit` y
+tag `direct-commit` para audit. `--reason` es obligatorio.
+
+### Comando legacy `dd-cli new-hdu` (deprecado en v0.6.0)
+
+Sigue funcionando con warning de deprecación pero migrá a `dd-cli hdu new`.
 
 ---
 
-## 12. Referencia rápida de comandos
+## 12. Referencia rápida de comandos (v0.6+)
 
-| Comando | Para qué | Frecuencia |
+### Setup (una vez)
+
+| Comando | Para qué |
+|---|---|
+| `dd-cli install` | Activar statusline global en Claude Code |
+| `dd-cli client onboard-dev <empresa> --context-url=<url> --git-token=<PAT>` | Setup local del cliente con tu PAT propio |
+| `dd-cli init --client=<empresa>` | Setup inicial del proyecto |
+
+### Día a día (vía skills, recomendado)
+
+| Skill | Para qué | Reemplaza el comando |
 |---|---|---|
-| `dd-cli install` | Activar statusline global en Claude Code | Una vez por máquina |
-| `dd-cli init` | Setup inicial del proyecto | Una vez por proyecto |
-| `dd-cli flow [--type=X]` | Ver el mapa del método | Cuando quieras orientarte |
-| `dd-cli new-hdu "<título>"` | Crear HDU + lanzar Claude | Cada nueva feature |
-| `dd-cli start-session <id>` | Iniciar sesión sobre una HDU | Cada sesión de trabajo |
-| `dd-cli status` | Ver dónde estás en el flujo | Cuando dudes |
-| `dd-cli next` | ¿Qué tipeo ahora? | Cuando dudes |
-| `dd-cli help-ctx` | Comandos útiles según tu estado | Cuando dudes |
-| `dd-cli end-session` | Cerrar sesión | Rara vez (lo hace la skill) |
-| `dd-cli watch` | Barra detallada en otro pane | Opcional, demos |
-| `dd-cli doctor` | Diagnóstico cuando algo no funciona | Cuando hay problemas |
-| `dd-cli skills list` | Ver skills instaladas | Ocasional |
-| `dd-cli skills verify` | Verificar integridad de skills | Ocasional |
-| `dd-cli reclassify` | Cambiar tipo de desarrollo | Muy rara vez |
-| `dd-cli uninstall` | Desactivar statusline global | Cuando sea necesario |
+| `/devflow-ia:daily-standup` | Ver mi día | `dd-cli today` + `inbox` |
+| `/devflow-ia:pick-next` | Decidir qué HDU tomar | `dd-cli hdu next --explain` |
+| `/devflow-ia:start-work HDU-N` | Arrancar trabajo | `hdu claim` + `hdu start` + `start-session` |
+| `/devflow-ia:end-day` | Cerrar el día | `hdu review`/`close` + `end-session` |
+| `/devflow-ia:troubleshoot` | Algo falló | `dd-cli doctor` + `state.json` |
+
+### Día a día (vía CLI directo, escape hatch)
+
+| Comando | Para qué |
+|---|---|
+| `dd-cli today --user=<email>` | Ritual matutino del dev |
+| `dd-cli inbox` | Eventos asincrónicos |
+| `dd-cli hdu list --client=<empresa> --mine --user=<email>` | Mis HDUs aprobadas |
+| `dd-cli hdu next --client=<empresa> --user=<email> --explain` | Próxima HDU por scoring |
+| `dd-cli hdu claim <id> --client=<empresa> --user=<email>` | Tomar HDU |
+| `dd-cli hdu start <id> --client=<empresa> --by=<email>` | approved → in-progress |
+| `dd-cli start-session <id>` | Iniciar sesión de Claude Code |
+| `dd-cli status` | ¿Dónde estoy? |
+| `dd-cli next` | ¿Qué tipeo ahora? |
+| `dd-cli hdu review <id> --client=<empresa> --by=<email>` | in-progress → in-review |
+| `dd-cli hdu close <id> --client=<empresa> --by=<email>` | in-review → done |
+| `dd-cli end-session` | Cerrar sesión |
+
+### Inspección / debug
+
+| Comando | Para qué |
+|---|---|
+| `dd-cli home` | Dashboard del operador (todos los clientes + sistema) |
+| `dd-cli client show <empresa>` | Dashboard del cliente |
+| `dd-cli hdu show <id> --client=<empresa>` | Detalle + historial de transiciones |
+| `dd-cli stats --client=<empresa> --period=30d` | Métricas: throughput, lead time, mix |
+| `dd-cli watch` | Barra detallada en otro pane |
+| `dd-cli doctor` | Diagnóstico del entorno |
+| `dd-cli error-codes` | Contrato estable de exit codes y códigos de error |
+| `dd-cli guide hdu` | Abre la guía del flujo HDU paginada en terminal |
+| `dd-cli flow --all` | Ver el viaje completo por dev_type |
+
+### Crear HDUs
+
+| Comando | Para qué |
+|---|---|
+| `dd-cli hdu new "<título>" --client=<empresa> --app=<app> --created-by=<email>` | Crear HDU draft |
+| `dd-cli hdu new ... --direct --reason="..."` | Crear approved directo (hotfix) |
+
+### Telemetría (opt-in, default OFF)
+
+| Comando | Para qué |
+|---|---|
+| `dd-cli telemetry enable --local` | Habilitar telemetría local (privacy-first) |
+| `dd-cli telemetry status` | Estado + size del archivo |
+| `dd-cli telemetry report --period=30d` | Reporte de uso |
+| `dd-cli telemetry disable` | Deshabilitar (preserva eventos) |
+| `dd-cli telemetry purge --yes` | Borrar eventos |
 
 ---
 
 ## 13. Preguntas frecuentes
 
 **¿Tengo que recordar todos los comandos?**
-No. `dd-cli next` te dice exactamente qué hacer. `dd-cli help-ctx` te muestra solo los comandos relevantes para tu situación actual.
+No. Bajo D-8 (skills-first), tu día es 4 skills:
+`/daily-standup → /pick-next → /start-work → /end-day`. Las skills
+invocan al CLI por debajo. Si algo no anda: `/devflow-ia:troubleshoot`.
 
 **¿Qué pasa si ejecuto una skill en el orden equivocado?**
-Claude Code te lo va a indicar. Las skills leen el estado de `.devflow/session.json` y las precondiciones del flujo — si falta algo, te dice qué ejecutar primero.
+Claude te lo va a indicar. Las skills leen `state.json` y validan
+precondiciones; si falta algo (ej: la HDU no está aprobada todavía),
+te dice qué ejecutar primero con el comando exacto.
 
 **¿Puedo trabajar en varios proyectos en paralelo?**
-Sí. Cada proyecto tiene su propio `.devflow/session.json`. Son sesiones independientes.
+Sí. Cada proyecto tiene su propio `.devflow/session.json`. Cada cliente
+tiene su propio `~/.devflow/clients/<slug>/state.json`. Son sesiones
+independientes.
 
 **¿Qué pasa si pierdo internet?**
-En modo `local` (el default en MVP), `dd-cli` funciona completamente sin red. Todo se guarda en `.devflow/` localmente.
+El CLI funciona offline. Todo el state vive en `~/.devflow/` y
+`.devflow/`. Las skills que necesitan red (ej: `dd-cli client discover`)
+fallan con `NETWORK_ERROR` claro y `recovery_hints` para reintentar
+cuando vuelva.
 
 **¿Las skills se actualizan automáticamente?**
-No — cuando hay una versión nueva del CLI, ejecutas `dd-cli skills install` y listo. El linter previene que una skill modificada localmente se te cuele.
+No — cuando hay una versión nueva del CLI, ejecutás `dd-cli skills install`
+y listo. El linter previene que una skill modificada localmente se cuele.
 
-**¿Qué son los ⬛ ⬜ ▪ en dd-cli skills list?**
-El modelo de Claude recomendado para cada skill:
-- ⬛ `opus` — decisiones arquitectónicas importantes
-- ⬜ `sonnet` — tareas balanceadas (la mayoría)
-- ▪ `haiku` — tareas mecánicas rápidas (cerrar sesión, archivar)
+**¿Cada dev tiene su propio token?**
+Sí (D-7 del rediseño). NUNCA compartas el PAT del consultor ni del TL.
+Cada dev se onboardea con `dd-cli client onboard-dev` y su propio token
+con scope read-only. Esto permite revocación granular y audit por
+persona.
+
+**¿Cómo sé qué versión de skills tengo instalada?**
+```bash
+dd-cli health
+# Skills: 28 skills · v0.6.0
+```
+
+**¿Las HDUs viven en mi repo de código?**
+**No (cambio v0.6+).** Viven en el context repo del cliente
+(`<empresa>-devflow-context/hdus/`), no en cada repo de código. Esto
+permite HDUs cross-app. Tu repo de código solo tiene `.devflow/config.yml`
+(identidad repo↔cliente) y los artefactos `.ai/` (SPEC, REPO-CONTEXT) de
+la sesión actual.
+
+**¿Qué es el "scoring" de hdu next?**
+5 factores con pesos: prioridad (5-100), apps tocadas recientemente
+(+15), continuidad de dev_type (+10), sprint activo (+8), antigüedad
+(0-20 anti-starvation). `--explain` muestra el breakdown. Sobreescribible
+con `hdu pin --to=<email> --by=<TL> --reason="..."` (sólo Tech Lead,
+v0.7+).
+
+**¿Cómo veo los eventos asincrónicos (HDU asignada, MR mergeado)?**
+```bash
+dd-cli inbox          # eventos no leídos
+dd-cli inbox --all    # leídos + no-leídos
+dd-cli inbox --read   # marcar todos como leídos
+```
+Auto-purge de leídos > 30 días. `/devflow-ia:daily-standup` lo compone
+automáticamente.
+
+**¿Cómo activo la telemetría local?**
+```bash
+dd-cli telemetry enable --local      # requiere --local explícito
+dd-cli telemetry report --period=30d # ver tu uso
+dd-cli telemetry disable             # deshabilitar
+```
+100% local (jamás push remoto). Sanitiza tokens y emails con sha256
+truncado. Default OFF.
 
 ---
 
-## Apéndice — estructura de archivos que crea dd-cli
+## Apéndice — estructura de archivos que usa dd-cli (v0.6+)
+
+### En tu home (un solo lugar para todos los clientes)
+
+```
+~/.devflow/
+├── registry.yml                       ← clientes registrados (yaml)
+├── credentials.yml                    ← PATs (chmod 600, NUNCA commitear)
+├── inbox.jsonl                        ← eventos asincrónicos (notificaciones)
+├── telemetry.config.yml               ← config telemetría (default OFF)
+├── telemetry.jsonl                    ← eventos opt-in
+└── clients/
+    ├── <empresa>/                     ← clone del context repo del cliente
+    │   ├── hdus/                      ← HDUs del cliente
+    │   │   ├── _index.yml
+    │   │   ├── _transitions.jsonl
+    │   │   └── HDU-N-*.md
+    │   ├── sprints/                   ← (opcional) sprints planificados
+    │   └── .devflow-context/
+    │       ├── stack.yml              ← master config canónico
+    │       ├── catalog.yml            ← catálogo YAML
+    │       ├── app-catalog.md         ← vista derivada
+    │       ├── auth-profiles/
+    │       └── cicd-profiles/
+    └── <empresa>.state.json           ← estado del cliente (REGISTERED/DISCOVERED/READY/...)
+```
+
+### En cada repo de código
 
 ```
 tu-proyecto/
-├── CLAUDE.md                 ← instrucciones para Claude (editar variables)
+├── CLAUDE.md                 ← contexto del cliente embebido (no editar)
 ├── .claude/
 │   └── settings.json         ← hooks + statusLine de Claude Code
 ├── .devflow/
-│   ├── session.json          ← estado de la sesión activa
-│   ├── heartbeat.log         ← log de heartbeats
+│   ├── config.yml            ← identidad repo↔cliente (sí se commitea)
+│   ├── session.json          ← estado de la sesión activa (NO commitear)
+│   ├── heartbeat.log         ← log de heartbeats (NO commitear)
 │   ├── transitions.log       ← registro de cambios de estado
-│   ├── transitions.ack       ← marca la última transición mostrada
-│   └── audit.log             ← cambios de dev_type con fecha y razón
+│   └── audit.log             ← cambios de dev_type con razón
 └── .ai/                      ← generado por las skills durante la sesión
     ├── SPEC.md               ← generado por /new-spec
     ├── CONTEXT.md            ← generado por /derive-spec
@@ -650,5 +939,7 @@ tu-proyecto/
     └── golden/<modulo>/      ← golden tests para refactor
 ```
 
-> `.devflow/session.json` **no se commitea** (agrégalo a `.gitignore`).
-> `.ai/SPEC.md`, `.ai/REPO-CONTEXT.md` y similares **sí se commitean**.
+> Commitear: `.devflow/config.yml`, todo `.ai/`, CLAUDE.md (si es el del
+> repo, no el del cliente).
+> **No commitear**: `.devflow/session.json`, `.devflow/heartbeat.log`,
+> nada de `~/.devflow/`.

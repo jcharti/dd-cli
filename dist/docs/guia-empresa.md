@@ -1,6 +1,11 @@
 # Guía de implementación DevFlow IA en una empresa
 
 > **Para quién es esta guía:** consultores Digital-Dev o Tech Leads que van a implementar el método DevFlow IA en un equipo de desarrollo. Cubre la instalación, configuración inicial, fuente de la verdad y templates.
+>
+> **Versión:** v0.6.0 (junio 2026). Cambios mayores vs v0.5.x: schemas YAML
+> canónicos (`stack.yml`, `catalog.yml`), namespace `dd-cli client {new,
+> discover, publish, ...}`, 28 skills bundled, surface skills-first
+> (decisión D-8 del rediseño). Para el detalle completo: `CHANGELOG.md`.
 
 ---
 
@@ -30,49 +35,73 @@ El desarrollo de software con IA tiene un problema fundamental: **cada dev arran
 
 ## 2. Los actores y sus roles
 
-| Actor | Herramienta | Responsabilidad |
-|---|---|---|
-| **PMO / Negocio** | APP (web) o `dd-cli new-hdu` | Crear y refinar el brief (HDU). Definir qué se construye y por qué. |
-| **Tech Lead** | Claude Code + `dd-cli` | Aprobar HDU, confirmar dev_type, supervisar la implementación. Mantener la fuente de la verdad. |
-| **Dev** | Claude Code + `dd-cli` | Ejecutar el flujo de skills. Producir el código. |
-| **Consultor Digital-Dev** | Claude Code + `dd-cli` | Configurar la fuente de la verdad inicial (`/init-context`). Capacitar al equipo. |
+DevFlow IA es **skills-first** (D-8 del rediseño): el usuario raramente
+tipea comandos CLI. Cada rol tiene una skill que orquesta el flujo y el
+CLI vive por debajo. Los comandos CLI directos son escape hatch para CI,
+scripts o power users.
+
+| Actor | Skill principal | Comandos CLI por debajo | Responsabilidad |
+|---|---|---|---|
+| **Consultor Digital-Dev** | `/devflow-ia:client-onboard` | `dd-cli client new`, `discover`, `publish` | Configurar la fuente de la verdad inicial. Capacitar al equipo. |
+| **PMO / Negocio** | `/devflow-ia:new-hdu`, `/devflow-ia:hdu-board` | `dd-cli hdu new`, `list` | Crear y refinar el brief (HDU). Definir qué se construye y por qué. |
+| **Tech Lead** | `/devflow-ia:hdu-board`, `/devflow-ia:stats-review` | `dd-cli hdu approve / assign / pin / cancel`, `dd-cli stats` | Aprobar HDU, confirmar dev_type, mantener fuente de la verdad, métricas. |
+| **Dev** | `/devflow-ia:daily-standup`, `/pick-next`, `/start-work`, `/end-day` | `dd-cli today`, `hdu next / claim / start / review / close`, `start-session` | Ejecutar el viaje de skills del dev_type. Producir el código. |
+| **Cualquiera (cuando algo falla)** | `/devflow-ia:troubleshoot` | `dd-cli doctor`, lee `state.json` + `last_error` | Diagnóstico asistido con recovery hints estables del CLI. |
 
 ---
 
 ## 3. El flujo end-to-end
 
-Cada feature sigue el mismo ciclo, independientemente del tipo de cambio:
+Cada feature sigue el mismo ciclo, independientemente del tipo de cambio.
+En el modo skill-first (recomendado), el actor abre Claude y dispara la
+skill correspondiente; el CLI vive por debajo.
 
 ```
-ETAPA 1 — Captura
+ETAPA 1 — Captura  (PMO o Tech Lead)
 ──────────────────────────────────────────────────────────────
-  PMO/Negocio crea el brief  →  dd-cli new-hdu "nombre"
-                                Claude Code + /devflow-ia:design-hdu
+  Vía skill:  /devflow-ia:new-hdu o /devflow-ia:hdu-board
+  CLI debajo: dd-cli hdu new "<título>" --client=<slug>
+                                --app=<app> --created-by=<email>
 
-  Output: docs/hdus/HDU-NNN-<slug>.md
-  Campos clave: título, Como/Quiero/Para, criterios de aceptación,
-                dev_type sugerido, apps afectadas.
+  Output: en el context repo del cliente:
+          <cliente>-devflow-context/hdus/HDU-NNN-<slug>.md
+  Campos: título, Como/Quiero/Para, criterios, dev_type sugerido,
+          apps_affected, priority.
 
-ETAPA 2 — Aprobación
+ETAPA 2 — Aprobación  (Tech Lead)
 ──────────────────────────────────────────────────────────────
-  Tech Lead revisa la HDU.
-  Confirma (o corrige) el dev_type y las apps afectadas.
-  Cambia status: draft → approved.
+  Vía skill:  /devflow-ia:hdu-board → modo "aprobar HDUs pendientes"
+              (procesa las draft una a una con confirmación)
+  CLI debajo: dd-cli hdu approve HDU-N --client=<slug> --by=<email-tl>
 
-ETAPA 3 — Sesión de desarrollo
+  Transición: draft → approved. Append a _transitions.jsonl.
+
+ETAPA 3 — Asignación y arranque  (Tech Lead + Dev)
 ──────────────────────────────────────────────────────────────
-  Dev inicia la sesión:
-    dd-cli start-session HDU-NNN
+  Vía skill:  /devflow-ia:hdu-board → "asignar HDUs"
+              /devflow-ia:daily-standup → dev ve su queue
+              /devflow-ia:pick-next → scoring sugiere qué tomar
+              /devflow-ia:start-work HDU-N → claim + start + abre repo
+  CLI debajo: dd-cli hdu assign / claim / start, dd-cli start-session
 
-  Dev sigue el viaje de skills en Claude Code según el dev_type.
-  El CLI guía en cada paso con dd-cli next y la statusline.
-
-ETAPA 4 — Review y merge
+ETAPA 4 — Desarrollo (Dev en Claude Code)
 ──────────────────────────────────────────────────────────────
-  /devflow-ia:release-check verifica que el código cumple la SPEC.
-  El dev abre el MR/PR. Tech Lead revisa.
-  /devflow-ia:end-session cierra la sesión y genera el resumen.
+  Sigue el viaje de skills del dev_type (8 pasos para brownfield-feature).
+  La statusline muestra paso N/M y la próxima skill.
+
+ETAPA 5 — Review y merge
+──────────────────────────────────────────────────────────────
+  Vía skill:  /devflow-ia:end-day → "PR abierto" o "PR mergeado"
+              decide entre hdu review / hdu close / pausa / bloqueado
+              + sugiere commit message con trailer DevFlow-Type
+  CLI debajo: dd-cli hdu review / close, dd-cli end-session
 ```
+
+> **Variante opcional con CI**: en clientes con flujo PR estricto
+> (compliance, branch protection con review obligatorio), se puede
+> provisionar `dd-cli context install-ci` para que el merge del PR de
+> HDUs propague `draft → approved` automáticamente. Por default **no se
+> usa** — el flujo skill-first cubre el caso.
 
 ### Los 5 tipos de desarrollo (dev_types)
 
@@ -102,10 +131,19 @@ Es un repo git privado en la plataforma de la empresa (GitLab, GitHub, etc.) que
 <empresa>-devflow-context/
 ├── CLAUDE.md                         ← leído automáticamente por Claude Code
 ├── README.md
-├── .devflow/
-│   └── config.yml                    ← defaults del cliente (dev_type preferido, etc.)
+├── .gitlab-ci.yml                    ← (opcional) CI job de transiciones HDU
+├── hdus/                             ← HDUs del cliente (v0.6+, antes vivían en cada repo)
+│   ├── _index.yml                    ← derivado, regenerable
+│   ├── _transitions.jsonl            ← log append-only de transiciones (event-sourcing)
+│   └── HDU-N-slug.md                 ← una por HDU (frontmatter YAML + body)
+├── sprints/                          ← (opcional) sprints planificados
+│   ├── _current.yml
+│   └── SPRINT-N.yml
 └── .devflow-context/
-    ├── app-catalog.md                ← inventario completo de apps
+    ├── .context-repo.yml             ← marcador + audit metadata (provider, cli_version, checksums)
+    ├── stack.yml                     ← v0.6: master config canónico (Apéndice B.3)
+    ├── catalog.yml                   ← v0.6: catálogo YAML canónico (Apéndice B.2)
+    ├── app-catalog.md                ← vista derivada, regenerable con dd-cli context render
     ├── client-assessment.md          ← gaps detectados (sin CI, auth no estándar, etc.)
     ├── auth-profiles/
     │   ├── custom-jwt.md             ← cómo funciona el JWT propio del cliente
@@ -114,6 +152,13 @@ Es un repo git privado en la plataforma de la empresa (GitLab, GitHub, etc.) que
     └── cicd-profiles/
         └── nestjs-k8s.yml            ← pipeline estándar del cliente
 ```
+
+> **Breaking change v0.6.0**: el master config del cliente migró de
+> `.devflow/config.yml` (legacy) a `.devflow-context/stack.yml` (canónico).
+> El catálogo de apps migró de `app-catalog.md` (markdown frágil) a
+> `catalog.yml` (YAML estructurado). Los markdowns se regeneran como vista
+> derivada con `dd-cli context render`. Para clientes existentes:
+> `dd-cli client migrate <slug>` (idempotente, con backup automático).
 
 ### Por qué es clave
 
@@ -129,36 +174,62 @@ Sin este contexto, Claude pregunta o asume. Con este contexto, Claude trabaja de
 
 ### Cómo se crea (primera vez)
 
-El consultor Digital-Dev ejecuta `/devflow-ia:init-context` en Claude Code. La skill puede operar en dos modos:
-
-**Modo auto (recomendado):** con un token de API del GitLab/GitHub de la empresa, la skill enumera todos los repos, detecta el stack, los patrones de auth y el CI/CD sin preguntar — solo confirma en ≤5 preguntas.
+**Modo recomendado v0.6+ (skill-first):** el consultor abre Claude Code y
+ejecuta `/devflow-ia:client-onboard` que orquesta todo el flujo
+conversacionalmente:
 
 ```bash
-# 1. Registrar el cliente con credenciales API (una vez por máquina)
-#    El PAT debe tener scope read_api (GitLab) o repo (GitHub)
-#    IMPORTANTE: la URL lleva el token embebido para que git clone funcione
-dd-cli register-client <empresa> \
-  --context-url="https://oauth2:<PAT>@gitlab.com/<grupo>/<empresa>-devflow-context.git" \
-  --git-token=<PAT> \
-  --git-group=<grupo> \
-  --git-host=gitlab
-
-# 2. Verificar que quedó bien configurado
-dd-cli health --client=<empresa>
-# Debe mostrar: ✓ <empresa>  ·  API: gitlab · <grupo>
-
-# 3. Clonar el repo de contexto (si está vacío, es normal)
-git clone "https://oauth2:<PAT>@gitlab.com/<grupo>/<empresa>-devflow-context.git"
-cd <empresa>-devflow-context
-
-# 4. En Claude Code, pasar el slug como argumento
 claude
-❯ /devflow-ia:init-context <empresa>
+❯ /devflow-ia:client-onboard
+
+# La skill pregunta:
+#   - Slug del cliente (kebab-case)
+#   - Nombre completo
+#   - Provider (gitlab / github)
+#   - Group/org
+#   - Token API (con scopes adecuados)
+# Y ejecuta por debajo:
+#   1. dd-cli client new <slug>              registra + crea context repo + clone
+#   2. dd-cli client discover <slug>          analiza repos via API (sin LLM, ~15s)
+#   3. (review opcional de gaps detectados)
+#   4. dd-cli client publish <slug>           valida + commit + push + state = READY
 ```
 
-> **Tip v0.5.1:** pasar el slug como argumento (`/init-context iprsa`) garantiza que la skill encuentre las credenciales sin depender del nombre del directorio.
+**Permisos del PAT** (sección 4.7 del rediseño):
 
-**Modo manual (fallback):** si no hay acceso API o el modo auto falla, la skill ofrece una entrevista estructurada de 7 bloques (~45-60 minutos). Genera el mismo output.
+| Operación | GitLab scope | GitHub Classic | GitHub Fine-grained |
+|---|---|---|---|
+| Listar repos del group/org | `read_api` | `repo` | Contents:Read, Metadata:Read |
+| Crear el context repo | `api` | `repo` + admin org | Administration:Write |
+| Push de commits | (incluido en `api`) | `repo` | Contents:Write |
+| Branch protection del context repo | `api` + Maintainer | `repo` + admin del repo | Administration:Write |
+
+El consultor necesita ser **Maintainer u Owner del group/org** para que
+`client new` pueda crear el repo + aplicar branch protection. El comando
+valida los scopes ANTES de empezar (preflight) y aborta con mensaje claro
+si falta algo.
+
+**Modo CLI directo** (para CI, scripts o si preferís evitar Claude):
+
+```bash
+dd-cli client new <slug> \
+  --name="<nombre>" \
+  --provider=gitlab \
+  --base-url=https://gitlab.com \
+  --group=<grupo> \
+  --git-token=<PAT> \
+  --yes
+
+dd-cli client discover <slug>
+
+# Si el discovery detectó todo bien y no hay decisiones humanas
+# pendientes, podés ir directo a publish:
+dd-cli client publish <slug>
+```
+
+**Para clientes legacy (onboardeados con v0.5.x)**: usar
+`dd-cli client migrate <slug>` para migrar al schema nuevo. Idempotente,
+backup automático en `~/.devflow/clients/<slug>.bak-<ts>/`.
 
 ### Cómo se mantiene
 
@@ -169,11 +240,28 @@ El repo de contexto no es estático. Debe actualizarse cuando:
 - Se agrega o modifica el pipeline CI/CD
 - Se detecta un gap resuelto
 
-El Tech Lead actualiza el archivo relevante directamente (o con ayuda de Claude) y hace commit + push. Los devs reciben la actualización automáticamente en la próxima sincronización:
+**Vía skill (v0.6+):** `/devflow-ia:client-refresh` re-corre el discovery
+y muestra el diff vs el catálogo actual (added/modified/removed). Si
+confirmás, ejecuta `dd-cli client refresh --apply`, regenera el markdown
+derivado y propone el commit + push. Preserva los campos editados a mano
+(name, ci_cd_profile, repo, preferred_dev_types, tags, notes).
+
+**CLI directo:**
 
 ```bash
-dd-cli pull-context   # actualiza la cache local del contexto
+dd-cli client refresh <slug>            # dry-run: muestra el diff
+dd-cli client refresh <slug> --apply    # persiste + regenera markdown
+dd-cli client publish <slug>            # commit + push al context repo
+
+# Y en cada máquina de dev:
+dd-cli pull-context <slug>              # actualiza la cache local
 ```
+
+**Audit (v0.7+):** los artefactos auto-generados (`stack.yml`,
+`catalog.yml`) llevan un header con checksum sha256. `dd-cli context
+validate` detecta ediciones manuales y reporta `stack-config-audit warn`
+si el body cambió fuera del flujo del CLI. Útil para enterprise con
+compliance.
 
 ### Modelo de ownership del repo
 
@@ -473,37 +561,54 @@ En Claude Code:
 ### Paso 1 — Instalar el CLI (una vez por máquina, cada persona del equipo)
 
 ```bash
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.5.1/devflow-ia-cli-0.5.1.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.6.0/devflow-ia-cli-0.6.0.tgz
 dd-cli install        # activa la statusline en Claude Code
 # reiniciar Claude Code
 ```
 
-### Paso 2 — Registrar la empresa (una vez, el consultor Digital-Dev)
+Verificar:
 
 ```bash
-dd-cli register-client <empresa> \
-  --context-url=https://gitlab.com/<grupo>/<empresa>-devflow-context.git \
-  --git-token=<PAT-lectura/escritura> \
-  --git-group=<grupo> \
-  --git-host=gitlab
+dd-cli --version            # → 0.6.0
+dd-cli home                 # dashboard del operador
+dd-cli error-codes          # contrato de exit codes y códigos de error
 ```
 
-Esto hace dos cosas:
-- Clona el repo de contexto en `~/.devflow/clients/<empresa>/`
-- Guarda las credenciales API en `~/.devflow/credentials.yml` (chmod 600)
+### Paso 2 — Onboardear la empresa (consultor Digital-Dev, una vez)
 
-### Paso 3 — Crear el contexto de la empresa (una vez, el consultor)
+**Vía skill (recomendado):**
 
 ```bash
-mkdir <empresa>-devflow-context && cd <empresa>-devflow-context
-git init && git remote add origin <url-del-repo>
 claude
-❯ /devflow-ia:init-context
+❯ /devflow-ia:client-onboard
 ```
 
-La skill genera todos los artefactos de la fuente de la verdad, hace el commit inicial y lo pushea.
+La skill pregunta slug, nombre, provider, group y token; ejecuta
+`client new` → `client discover` → `client publish` con confirmación
+en cada paso. ~5 minutos total.
 
-### Paso 4 — Inicializar cada repo de código (una vez por repo)
+**CLI directo (para CI/scripts):**
+
+```bash
+dd-cli client new <empresa> \
+  --name="<Nombre Completo>" \
+  --provider=gitlab \
+  --base-url=https://gitlab.com \
+  --group=<grupo> \
+  --git-token=<PAT> \
+  --yes
+
+dd-cli client discover <empresa>
+dd-cli client publish <empresa>
+```
+
+Output al cierre: `state.json` del cliente en `READY`. El context repo
+queda inicializado con `stack.yml`, `catalog.yml`, `.context-repo.yml`,
+`README.md` y `CLAUDE.md`. Los `auth-profiles/` y `cicd-profiles/` se
+generan en el discovery; el consultor afina los `[por confirmar]`
+después editando los archivos + `dd-cli client refresh`.
+
+### Paso 3 — Inicializar cada repo de código (una vez por repo)
 
 El Tech Lead (o el dev) conecta cada repo de código a la empresa:
 
@@ -514,69 +619,128 @@ dd-cli init --client=<empresa>
 
 Esto:
 - Crea `.devflow/session.json`
-- Instala las 20 skills en `~/.claude/commands/devflow-ia/`
+- Instala las 28 skills en `~/.claude/commands/devflow-ia/`
 - Configura hooks de heartbeat en `.claude/settings.json`
 - Copia el `CLAUDE.md` del repo de contexto al proyecto (con merge si ya existe)
 
-### Paso 5 — Verificar que todo está en orden
+### Paso 4 — Verificar que todo está en orden
 
 ```bash
 dd-cli doctor
+dd-cli health --client=<empresa>
+dd-cli client show <empresa>      # dashboard completo del cliente
 ```
 
 ```
-✓ Claude Code detectado
-✓ Skills instaladas (20 skills v0.5.1)
-✓ Hooks configurados
-✓ Cliente conectado: <empresa>
-✓ App catalog: N apps
-✓ Auth profiles: N perfiles
+✓ CLI             v0.6.0
+✓ Statusline      activa
+✓ Claude Code     /Users/jorge/.claude
+✓ Skills          28 skills · v0.6.0
+✓ Cliente:        <empresa> · READY
+✓ App catalog:    N apps catalogadas
 ```
+
+### Paso 5 — Onboardear cada dev nuevo (una vez por máquina del dev)
+
+Cuando un dev nuevo del equipo arranca:
+
+```bash
+# 1. Instalar el CLI
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.6.0/devflow-ia-cli-0.6.0.tgz
+dd-cli install
+
+# 2. Setup local del cliente (token read-only propio, NO el del consultor)
+dd-cli client onboard-dev <empresa> \
+  --context-url=<URL del context repo, te la pasa el TL> \
+  --git-token=<tu PAT con scope read>
+```
+
+`client onboard-dev` clona el context repo, registra el cliente local,
+y deja al dev listo para hacer `dd-cli init --client=<empresa>` en su
+primer repo de código.
+
+### Paso 6 — (Opcional) CI job para transiciones HDU automáticas
+
+**Solo si la empresa requiere flujo PR estricto** (compliance, audit
+trail por merge log de GitLab/GitHub), provisioná el CI job:
+
+```bash
+dd-cli context install-ci ~/.devflow/clients/<empresa>
+# Después:
+#   1. cd ~/.devflow/clients/<empresa> && git add .gitlab-ci.yml && git commit + push
+#   2. En GitLab: Project Settings → CI/CD → Variables → HDU_BOT_TOKEN
+#      (scope write_repository + Maintainer del group)
+```
+
+Detalles en `templates/ci/README.md`.
+
+**Para la mayoría de clientes esto no se usa**: la skill
+`/devflow-ia:hdu-board` permite al TL aprobar HDUs conversando con
+Claude (`dd-cli hdu approve` por debajo) sin necesidad de PR.
 
 ---
 
-## 9. Flujo de trabajo típico de un sprint
+## 9. Flujo de trabajo típico de un sprint (v0.6+, skill-first)
 
 ### Lunes — Refinamiento
 
 ```
-PMO/Negocio:
-  dd-cli new-hdu "Feature del sprint"
-  → Claude Code completa la HDU con /devflow-ia:design-hdu
+PMO/Negocio (en Claude Code):
+  ❯ /devflow-ia:new-hdu "Feature del sprint"
+  → completa la HDU (Como/Quiero/Para/Criterios) conversacionalmente
+  → la skill crea el archivo en <cliente>-devflow-context/hdus/HDU-N-...md
+    con status: draft + dev_type sugerido
 
-Tech Lead:
-  Revisa la HDU, confirma dev_type y apps afectadas
-  Cambia status a: approved
+Tech Lead (en Claude Code):
+  ❯ /devflow-ia:hdu-board                    # modo "aprobar HDUs pendientes"
+  → revisa cada draft, confirma dev_type + apps_affected,
+    asigna a un dev. Transición draft → approved automática.
+
+Tech Lead (opcional, sprints quincenales):
+  ❯ /devflow-ia:plan-sprint
+  → o vía CLI:
+    dd-cli sprint new --client=<empresa> --duration=14d --goal="..."
+    dd-cli sprint add HDU-N --client=<empresa>
 ```
 
 ### Martes a Jueves — Desarrollo
 
 ```
-Dev (por cada HDU del sprint):
+Dev (mañana, en Claude Code):
+  ❯ /devflow-ia:daily-standup          # ver sesión pendiente + queue + alertas
+  ❯ /devflow-ia:pick-next              # scoring sugiere la próxima HDU
+  ❯ /devflow-ia:start-work HDU-N       # claim + start + abre repo de código
 
-  1. TERMINAL:
-     dd-cli start-session HDU-NNN
+Dev (mientras codea — en Claude Code, según dev_type):
+  ❯ /devflow-ia:init-repo-context      ← si es brownfield
+  ❯ /devflow-ia:new-spec               ← siempre
+  ❯ /devflow-ia:opsx:propose           ← diseño
+  ❯ /devflow-ia:opsx:apply             ← implementación
 
-  2. CLAUDE CODE (según dev_type — ver dd-cli flow):
-     /devflow-ia:init-repo-context   ← si es brownfield
-     /devflow-ia:new-spec            ← siempre
-     /devflow-ia:opsx:propose        ← diseño
-     /devflow-ia:opsx:apply          ← implementación
-
-  3. TERMINAL (al final del día si no se cerró):
-     dd-cli end-session
+Dev (al final del día):
+  ❯ /devflow-ia:end-day                # ¿PR abierto? hdu review.
+                                         ¿Mergeado? hdu close.
+                                         ¿Pausa? end-session.
+                                         ¿Bloqueado? + nota al inbox del TL.
+                                         + sugiere commit message
 ```
 
-### Viernes — Review
+### Viernes — Review + métricas
 
 ```
 Dev:
-  /devflow-ia:release-check
-  Abre MR/PR
+  ❯ /devflow-ia:release-check
+  Abre MR/PR. La skill valida que el código cumple la SPEC.
 
 Tech Lead:
-  Revisa el MR (el /release-check ya validó que cumple la SPEC)
-  Merge a main
+  Revisa el MR. Mergea.
+  En la skill /devflow-ia:hdu-board → "cerrar HDUs mergeadas"
+  (o automático con CI job si está instalado — sección 8 paso 6).
+
+Tech Lead (cierre de sprint):
+  ❯ /devflow-ia:stats-review <empresa> 7d
+  → interpreta dd-cli stats: throughput, lead time, cycle time,
+    mix dev_type, cuellos (aprobación vs ejecución), churn.
 ```
 
 ---
@@ -587,11 +751,13 @@ Un dev nuevo en un equipo que ya usa DevFlow IA necesita:
 
 ```bash
 # 1. Instalar el CLI
-npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.5.1/devflow-ia-cli-0.5.1.tgz
+npm install -g https://github.com/jcharti/dd-cli/releases/download/v0.6.0/devflow-ia-cli-0.6.0.tgz
 dd-cli install
 
-# 2. Registrar la empresa (el Tech Lead le pasa el PAT o la URL del repo de contexto)
-dd-cli register-client <empresa> --context-url=<url>
+# 2. Setup del cliente (token read-only PROPIO, NO compartir el del TL)
+dd-cli client onboard-dev <empresa> \
+  --context-url=<URL del context repo, te la pasa el TL> \
+  --git-token=<tu PAT con scope read_api / repo:read>
 
 # 3. En su primer repo
 cd <repo>
@@ -599,14 +765,26 @@ dd-cli init --client=<empresa>
 
 # 4. Ver el método antes de arrancar
 dd-cli flow --all
-
-# 5. Arrancar su primera tarea
-dd-cli start-session <HDU-id>
 ```
 
-Tiempo estimado desde instalación hasta primera sesión activa: **15 minutos**.
+Y en Claude Code (skill-first, recomendado):
 
-El dev no necesita entender toda la arquitectura de la empresa para arrancar: la fuente de la verdad se la provee Claude automáticamente al abrir la sesión.
+```
+❯ /devflow-ia:daily-standup
+  → muestra su queue, no tiene sesión activa todavía.
+❯ /devflow-ia:pick-next
+  → scoring sugiere la primera HDU asignada.
+❯ /devflow-ia:start-work HDU-N
+  → claim + start + abre repo de código.
+```
+
+Tiempo estimado desde instalación hasta primera sesión activa:
+**~10 minutos**.
+
+El dev no necesita entender toda la arquitectura de la empresa para
+arrancar: la fuente de la verdad se la provee Claude automáticamente
+al abrir la sesión. Cada dev tiene su propio token (D-7 del rediseño)
+— no se comparte el del consultor ni del TL.
 
 ---
 
@@ -615,15 +793,30 @@ El dev no necesita entender toda la arquitectura de la empresa para arrancar: la
 | Archivo | Contiene | Commitear |
 |---|---|---|
 | `~/.devflow/credentials.yml` | Tokens API por empresa (chmod 600) | ❌ Nunca |
+| `~/.devflow/clients/<slug>.state.json` | Estado de cada cliente (leído por Claude) | ❌ Nunca |
+| `~/.devflow/inbox.jsonl` | Eventos asincrónicos del dev | ❌ Nunca |
+| `~/.devflow/telemetry.jsonl` | Telemetría local opt-in (default OFF) | ❌ Nunca |
 | `.devflow/session.json` | Estado de la sesión activa | ❌ Nunca |
 | `.devflow/heartbeat.log` | Timestamps de actividad | ❌ Nunca |
 | `.ai/SPEC.md` | SPEC técnica de la feature | ✅ Sí |
 | `.ai/REPO-CONTEXT.md` | Análisis del repo | ✅ Sí |
 | `<empresa>-devflow-context/` | Fuente de la verdad | ✅ Sí (repo propio) |
 
-Los tokens API deben tener el mínimo de permisos necesario:
-- GitLab: `read_repository` + `read_api`
-- GitHub: `repo` (solo lectura si es posible)
+Permisos del PAT por rol (v0.6+):
+
+| Rol | GitLab scope | GitHub Classic | Justificación |
+|---|---|---|---|
+| **Consultor (client new)** | `api` + Maintainer del group | `repo` + admin org | Crea el context repo + branch protection |
+| **Dev (onboard-dev)** | `read_repository` | `repo:read` / `public_repo` | Solo lectura del context repo |
+| **CI bot (opcional)** | `write_repository` + Maintainer | `repo` + admin del repo | Push de transiciones automáticas |
+
+El comando `dd-cli client new` valida los scopes ANTES de empezar
+(preflight) y aborta con `TOKEN_INSUFFICIENT_SCOPE` + lista exacta de
+scopes faltantes si algo no llega.
+
+**Telemetría:** default OFF. Si se habilita con `dd-cli telemetry enable
+--local`, escribe sólo localmente (jamás push remoto). Sanitiza tokens
+y emails con sha256 truncado. Privacy-first por diseño.
 
 ---
 
@@ -646,63 +839,111 @@ Los tokens API deben tener el mínimo de permisos necesario:
 
 ---
 
-## Apéndice A — Catálogo completo de skills (v0.4.0)
+## Apéndice A — Catálogo completo de skills (v0.6.0)
 
-Las 20 skills bundleadas con el CLI, organizadas por fase del método:
+**28 skills** bundleadas con el CLI, organizadas por audiencia y fase del
+método. Las 8 nuevas vs v0.5.x están marcadas con ⭐:
+
+### Consultor Digital-Dev (onboarding de cliente)
+
+| Skill | Modelo | Cuándo se usa |
+|---|---|---|
+| ⭐ `/devflow-ia:client-onboard` | sonnet | Orquesta `client new` → `discover` → `publish` conversacionalmente. **Reemplaza el modo manual de v0.5.x**. |
+| `/devflow-ia:init-context` | opus | (legacy) Genera artefactos del context repo. v0.6 invoca `dd-cli client discover` por debajo. |
+| ⭐ `/devflow-ia:troubleshoot` | sonnet | Diagnóstico asistido cuando algo falla. Lee `state.json` + `last_error` + `recovery_hints`. |
+
+### PMO y Tech Lead (gestión de HDUs)
+
+| Skill | Modelo | Cuándo se usa |
+|---|---|---|
+| `/devflow-ia:design-hdu` | opus | PMO refina brief → HDU formal con dev_type sugerido |
+| `/devflow-ia:enrich-us` | sonnet | PMO enriquece user story con criterios de aceptación |
+| ⭐ `/devflow-ia:hdu-board` | sonnet | TL/PMO: aprobar HDUs pendientes, asignar, triage estancadas. Compone `dd-cli hdu *`. |
+| `/devflow-ia:plan-sprint` | sonnet | TL organiza HDUs en sprint |
+| ⭐ `/devflow-ia:stats-review` | sonnet | TL interpreta `dd-cli stats` (lead time, throughput, mix dev_type) |
+
+### Dev día a día (v0.6+)
+
+| Skill | Modelo | Cuándo se usa |
+|---|---|---|
+| ⭐ `/devflow-ia:daily-standup` | haiku | Ritual matutino: sesión + queue + alertas. Compone `dd-cli today` + `inbox`. |
+| ⭐ `/devflow-ia:pick-next` | haiku | "¿Qué tomo ahora?" Invoca `dd-cli hdu next --explain` y narra el scoring. |
+| ⭐ `/devflow-ia:start-work` | haiku | Arrancar HDU: claim + start + apertura del repo + `start-session`. |
+| ⭐ `/devflow-ia:end-day` | sonnet | Cerrar día: review/close/pausa/bloqueado + sugerencia de commit. |
+
+### Análisis de repo y SPEC (devs)
 
 | Skill | Modelo | Dev_types | Cuándo se usa |
 |---|---|---|---|
-| `/devflow-ia:init-context` | opus | todos | Consultor crea la fuente de la verdad del cliente (una vez por empresa) |
-| `/devflow-ia:design-hdu` | opus | todos | Tech Lead / PMO refina el brief → HDU formal con dev_type aprobado |
-| `/devflow-ia:plan-sprint` | sonnet | todos | Tech Lead organiza HDUs en sprint |
-| `/devflow-ia:init-repo-context` | opus | brownfield, refactor, modern., integración | Dev mapea el repo antes de tocar código. Multi-stack v0.4.0. |
-| `/devflow-ia:explore-repo` | opus | brownfield, refactor, modern., integración | Reporte ad-hoc rápido de stack y estructura (sin guardar .md) |
-| `/devflow-ia:explain-code` | sonnet | brownfield, refactor, modern. | Explica un archivo o fragmento en nivel técnico y de negocio |
-| `/devflow-ia:map-service` | sonnet | brownfield, refactor, modern. | Diagrama Mermaid de capas del módulo. Multi-stack v0.4.0. |
-| `/devflow-ia:trace-flow` | opus | refactor, modern. | Traza flujos cross-service o en monolito. Multi-stack v0.4.0. |
-| `/devflow-ia:capture-baseline` | opus | refactor | Snapshot pre-refactor (tests, contratos, métricas). Multi-stack v0.4.0. |
+| `/devflow-ia:init-repo-context` | opus | brownfield, refactor, modern., integración | Mapea el repo antes de tocar código. Multi-stack. |
+| `/devflow-ia:explore-repo` | opus | brownfield, refactor, modern., integración | Reporte ad-hoc rápido de stack y estructura. |
+| `/devflow-ia:explain-code` | sonnet | brownfield, refactor, modern. | Explica un archivo en nivel técnico y de negocio. |
+| `/devflow-ia:map-service` | sonnet | brownfield, refactor, modern. | Diagrama Mermaid de capas del módulo. Multi-stack. |
+| `/devflow-ia:trace-flow` | opus | refactor, modern. | Traza flujos cross-service. Multi-stack. |
+| `/devflow-ia:capture-baseline` | opus | refactor | Snapshot pre-refactor (tests, contratos, métricas). |
 | `/devflow-ia:new-spec` | opus | todos | Genera la SPEC técnica. Orquesta `init-repo-context` si falta. |
-| `/devflow-ia:derive-spec` | sonnet | todos | Divide el SPEC maestro por app afectada |
-| `/devflow-ia:enrich-us` | sonnet | todos | Enriquece una user story con criterios de aceptación |
-| `/devflow-ia:new-app` | sonnet | greenfield | Scaffolding de app nueva desde template o from-scratch |
-| `/devflow-ia:opsx:propose` | sonnet | todos | Diseña la implementación (proposal + design + tasks) |
-| `/devflow-ia:opsx:apply` | sonnet | todos | Implementa task por task siguiendo el plan aprobado |
-| `/devflow-ia:opsx:explore` | sonnet | todos | Explora el codebase antes de proponer cambios |
-| `/devflow-ia:opsx:archive` | haiku | todos | Archiva un change completado |
-| `/devflow-ia:release-check` | sonnet | todos | Verifica que el código cumple la SPEC antes del MR |
-| `/devflow-ia:end-session` | haiku | todos | Commit + push + resumen. Cierra el ciclo. |
+| `/devflow-ia:derive-spec` | sonnet | todos | Divide la SPEC maestra por app afectada. |
+| `/devflow-ia:new-app` | sonnet | greenfield | Scaffolding desde template o from-scratch. |
 
-**Multi-stack (v0.4.0):** `/init-repo-context`, `/capture-baseline`, `/map-service`, `/trace-flow`, `/explore-repo` soportan explícitamente Node, PHP/Laravel, Python, .NET, Java/Spring y Go.
+### Implementación y cierre
+
+| Skill | Modelo | Cuándo se usa |
+|---|---|---|
+| `/devflow-ia:opsx:propose` | sonnet | Diseña implementación (proposal + design + tasks) |
+| `/devflow-ia:opsx:apply` | sonnet | Implementa task por task |
+| `/devflow-ia:opsx:explore` | sonnet | Explora el codebase antes de proponer |
+| `/devflow-ia:opsx:archive` | haiku | Archiva un change completado |
+| `/devflow-ia:release-check` | sonnet | Verifica que el código cumple la SPEC antes del MR |
+| `/devflow-ia:end-session` | haiku | Commit + push + resumen. Cierra el ciclo. |
+
+**Multi-stack (v0.4.0+):** `/init-repo-context`, `/capture-baseline`,
+`/map-service`, `/trace-flow`, `/explore-repo` soportan Node, PHP/Laravel,
+Python, .NET, Java/Spring y Go.
+
+**Bajo D-8 (v0.6+):** las skills marcadas con ⭐ son **la cara humana
+del CLI**. El TL/dev/PMO casi nunca tipea `dd-cli hdu approve` o
+`dd-cli today` directo — los invoca a través de `/devflow-ia:hdu-board`
+o `/devflow-ia:daily-standup` y conversa con Claude.
 
 ---
 
 ## Apéndice B — checklist de implementación
 
-### Para el consultor Digital-Dev
+### Para el consultor Digital-Dev (v0.6+)
 
-- [ ] Crear repo `<empresa>-devflow-context` en la plataforma de la empresa
-- [ ] `dd-cli register-client <slug> --context-url="https://oauth2:<PAT>@..." --git-token=<PAT> --git-group=<grupo> --git-host=gitlab`
-- [ ] `dd-cli health --client=<slug>` — verificar que muestra ✓ antes de continuar
-- [ ] Ejecutar `/devflow-ia:init-context <slug>` (pasar slug como argumento para modo auto)
-- [ ] Revisar el `app-catalog.md` generado con el Tech Lead — confirmar que las apps están correctas
+- [ ] Generar PAT en la plataforma de la empresa con scope `api` (GitLab)
+  o `repo` (GitHub) + verificar que sos Maintainer/admin del group/org
+- [ ] `npm install -g @devflow-ia/cli@0.6.0` + `dd-cli install`
+- [ ] En Claude Code: `/devflow-ia:client-onboard` (la skill orquesta todo)
+- [ ] Revisar el `catalog.yml` generado con el Tech Lead — completar los
+  `[por confirmar]` en `auth_profile` y `ci_cd_profile`
 - [ ] Revisar los `auth-profiles/` generados — completar los `[por confirmar]`
 - [ ] Documentar los templates de código en el `CLAUDE.md`
 - [ ] Hacer `dd-cli init --client=<empresa>` en al menos un repo piloto
-- [ ] Ejecutar `dd-cli doctor` para verificar que todo está en orden
-- [ ] Correr una sesión de prueba end-to-end con una HDU chica
+- [ ] Verificar: `dd-cli client show <empresa>` debe reportar estado READY
+- [ ] Correr una sesión de prueba end-to-end con una HDU chica usando las
+  skills día a día (`/daily-standup` → `/pick-next` → `/start-work` → `/end-day`)
 
 ### Para el Tech Lead de la empresa
 
-- [ ] `npm install -g` + `dd-cli install` en su máquina
-- [ ] Revisar y aprobar el contexto generado (app-catalog, auth-profiles)
+- [ ] `npm install -g @devflow-ia/cli@0.6.0` + `dd-cli install`
+- [ ] Revisar y aprobar el contexto generado (`catalog.yml`, `auth-profiles/`)
 - [ ] Definir quién tiene escritura en el repo de contexto (Modelo A/B/C)
-- [ ] Configurar el proceso de actualización del contexto cuando cambia la arquitectura
-- [ ] Comunicar al equipo el flujo de HDUs: quién crea, quién aprueba, dónde viven
+- [ ] Familiarizarse con `/devflow-ia:hdu-board` para aprobar HDUs
+- [ ] (Opcional) Provisionar CI job si la empresa requiere flujo PR estricto:
+  `dd-cli context install-ci` + configurar `HDU_BOT_TOKEN`
+- [ ] Comunicar al equipo el flujo de HDUs: quién crea, quién aprueba,
+  dónde viven (en el context repo de la empresa, no en cada repo de código)
 
 ### Para cada dev del equipo
 
-- [ ] `npm install -g` + `dd-cli install`
-- [ ] `dd-cli register-client <empresa> --context-url=<url>`
+- [ ] `npm install -g @devflow-ia/cli@0.6.0` + `dd-cli install`
+- [ ] Generar PAT propio con scope read-only (NO pedir el del TL)
+- [ ] `dd-cli client onboard-dev <empresa> --context-url=<url> --git-token=<PAT>`
 - [ ] `dd-cli init --client=<empresa>` en el primer repo
 - [ ] `dd-cli flow --all` para ver el método
-- [ ] Primera sesión con una HDU chica (idealmente acompañado del Tech Lead)
+- [ ] Primera sesión:
+  - En Claude Code: `/devflow-ia:daily-standup`
+  - `/devflow-ia:pick-next` para elegir HDU
+  - `/devflow-ia:start-work HDU-N` para arrancar
+  - Al cierre: `/devflow-ia:end-day`

@@ -1,11 +1,27 @@
 # Guía rápida: flujo de HDUs
 
-Esta guía cubre el ciclo de vida completo de una HDU en DevFlow IA v0.7+:
-desde que el PMO la crea hasta que el dev la cierra al mergear el PR.
+Esta guía cubre el ciclo de vida completo de una HDU en DevFlow IA v0.6+:
+desde que el PMO la crea hasta que el dev la cierra.
 
-Cada paso tiene **qué hacer** + **si falla** inline. Si te perdés, corré
-`dd-cli help-ctx --client=<slug>` (te muestra solo el paso actual) o
-`/devflow-ia:troubleshoot <slug>` desde Claude.
+## Dos modos de operar
+
+DevFlow IA es **skills-first** (decisión D-8 del rediseño). Para casi
+todos los casos, los actores conversan con Claude y las skills invocan al
+CLI por debajo:
+
+| Rol | Skill principal | Reemplaza |
+|---|---|---|
+| PMO | `/devflow-ia:new-hdu` o `/devflow-ia:hdu-board` | `dd-cli hdu new` |
+| Tech Lead | `/devflow-ia:hdu-board` | `dd-cli hdu approve / assign / cancel` |
+| Dev | `/devflow-ia:daily-standup`, `/pick-next`, `/start-work`, `/end-day` | `dd-cli today / hdu next / hdu start / hdu close` |
+
+Los comandos CLI directos que esta guía describe son **el contrato técnico
+debajo de las skills**. Si conversás con Claude no necesitás aprenderlos;
+si preferís CLI directo o estás scripteando, los tipeás vos.
+
+Si te perdés: `/devflow-ia:troubleshoot <slug>` desde Claude lee tu
+`state.json` + último error y te propone el fix. CLI fallback:
+`dd-cli help-ctx`.
 
 ---
 
@@ -150,14 +166,30 @@ El `--reason` es opcional pero recomendado (queda en transitions log).
 
 ## Paso 8 — Tech Lead aprueba el PR → Dev cierra (`in-review` → `done`)
 
-Cuando el PR mergea:
+Vía skill (recomendado): en el `/devflow-ia:end-day` del último día del
+ciclo, el dev confirma "PR mergeado" y la skill ejecuta `hdu close`.
+
+CLI directo:
 
 ```bash
 dd-cli hdu close HDU-1 --client=iprsa --by=jorge@cliente.cl
 ```
 
-Si el TL implementa el CI job de transiciones (S5-4 pendiente), esto
-puede ser automático al merge. Por ahora, manual.
+### Variante opcional: automatización con CI
+
+Si el cliente prefiere que la aprobación pase **siempre** por merge de
+PR en GitLab/GitHub (típico en enterprise con compliance estricto), se
+puede provisionar un CI job que hace la transición automáticamente:
+
+```bash
+dd-cli context install-ci ~/.devflow/clients/<slug>
+# Después: commit del .gitlab-ci.yml/.github/workflows/ + configurar
+# HDU_BOT_TOKEN en el provider.
+```
+
+**Esto NO es necesario para la mayoría de los clientes** — `/hdu-board`
+y `/end-day` cubren el caso. El CI es un escape hatch para flujos PR
+estrictos. Detalles en `templates/ci/README.md`.
 
 ---
 
