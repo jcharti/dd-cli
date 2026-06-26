@@ -44,6 +44,10 @@ import {
 import { runHduNext } from '../commands/hdu-next.js';
 import { runHduApplyMerge } from '../commands/hdu-apply-merge.js';
 import { runStats } from '../commands/stats-cmd.js';
+import {
+  runSprintNew, runSprintShow, runSprintAdd, runSprintRemove,
+  runSprintClose, runSprintBurndown,
+} from '../commands/sprint-cmd.js';
 import { runGuide } from '../commands/guide-cmd.js';
 import { runToday } from '../commands/today-cmd.js';
 import { runInbox, runInboxAdd } from '../commands/inbox-cmd.js';
@@ -626,6 +630,80 @@ program
   .option('--json', 'Output JSON con el listado de topics', false)
   .action(async (topic: string | undefined, opts: { json?: boolean }) => {
     try { process.exit(await runGuide(topic, { json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+// Namespace `sprint` (S7-5)
+const sprintCmd = program
+  .command('sprint')
+  .description('Gestión de sprints (S7-5): planificación + tracking sobre HDUs.');
+
+sprintCmd
+  .command('new')
+  .description('Crea un sprint nuevo (auto-incremento de ID).')
+  .option('--client <slug>', 'Slug del cliente (obligatorio)')
+  .option('--duration <d>', 'Duración (default 14d)', '14d')
+  .option('--start <date>', 'Fecha de inicio YYYY-MM-DD (default hoy)')
+  .option('--goal <g>', 'Objetivo del sprint')
+  .option('--created-by <email>', 'Email del Tech Lead')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runSprintNew(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+sprintCmd
+  .command('show')
+  .description('Muestra el sprint actual + sus HDUs con status. --id para mostrar uno específico.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--id <id>', 'Sprint específico (default: current)')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runSprintShow(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+sprintCmd
+  .command('add <hduId>')
+  .description('Agrega una HDU al sprint actual (o al --sprint=<id> dado).')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--sprint <id>', 'Sprint específico (default: current)')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runSprintAdd(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+sprintCmd
+  .command('remove <hduId>')
+  .description('Remueve una HDU del sprint.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--sprint <id>', 'Sprint específico (default: current)')
+  .option('--json', 'Output JSON', false)
+  .action(async (id: string, opts: any) => {
+    try { process.exit(await runSprintRemove(id, opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+sprintCmd
+  .command('close')
+  .description('Cierra el sprint. Muestra el % de completion.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--id <id>', 'Sprint específico (default: current)')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runSprintClose(opts)); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+sprintCmd
+  .command('burndown')
+  .description('Burndown ASCII del sprint actual.')
+  .option('--client <slug>', 'Slug del cliente')
+  .option('--sprint <id>', 'Sprint específico (default: current)')
+  .option('--json', 'Output JSON', false)
+  .action(async (opts: any) => {
+    try { process.exit(await runSprintBurndown(opts)); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 

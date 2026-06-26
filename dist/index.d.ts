@@ -1659,6 +1659,103 @@ declare function isAuditedAndUnmodified(content: string): boolean;
 declare function wasManuallyEdited(content: string): boolean;
 
 /**
+ * Sprints como YAML simple (S7-5 / H-5 del rediseño).
+ *
+ * Vive en `<cliente>-devflow-context/sprints/`:
+ *   _current.yml         apunta al sprint activo
+ *   SPRINT-NN.yml        un YAML por sprint (lista de HDU IDs + capacity + fechas)
+ *   SPRINT-NN-NN.yml     históricos
+ *
+ * Apéndice B.8 + B.9 del doc rediseño.
+ *
+ * Decisión: implementación mínima viable v0.7. El scoring por dev_type
+ * en hdu next ya considera membership en sprint (S5-3); este módulo solo
+ * gestiona el YAML.
+ */
+
+declare const SprintCapacitySchema: z.ZodObject<{
+    total: z.ZodNumber;
+    by_dev_type: z.ZodDefault<z.ZodRecord<z.ZodEnum<["greenfield", "brownfield-feature", "brownfield-refactor", "modernizacion", "integracion-externa"]>, z.ZodNumber>>;
+}, "strip", z.ZodTypeAny, {
+    total: number;
+    by_dev_type: Partial<Record<"greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa", number>>;
+}, {
+    total: number;
+    by_dev_type?: Partial<Record<"greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa", number>> | undefined;
+}>;
+declare const SprintSchema: z.ZodObject<{
+    schema_version: z.ZodDefault<z.ZodLiteral<"1.0">>;
+    id: z.ZodString;
+    client: z.ZodString;
+    start: z.ZodString;
+    end: z.ZodString;
+    capacity: z.ZodOptional<z.ZodObject<{
+        total: z.ZodNumber;
+        by_dev_type: z.ZodDefault<z.ZodRecord<z.ZodEnum<["greenfield", "brownfield-feature", "brownfield-refactor", "modernizacion", "integracion-externa"]>, z.ZodNumber>>;
+    }, "strip", z.ZodTypeAny, {
+        total: number;
+        by_dev_type: Partial<Record<"greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa", number>>;
+    }, {
+        total: number;
+        by_dev_type?: Partial<Record<"greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa", number>> | undefined;
+    }>>;
+    hdus: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+    goal: z.ZodDefault<z.ZodNullable<z.ZodString>>;
+    created_by: z.ZodOptional<z.ZodString>;
+    created_at: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    id: string;
+    schema_version: "1.0";
+    client: string;
+    hdus: string[];
+    start: string;
+    end: string;
+    goal: string | null;
+    created_by?: string | undefined;
+    created_at?: string | undefined;
+    capacity?: {
+        total: number;
+        by_dev_type: Partial<Record<"greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa", number>>;
+    } | undefined;
+}, {
+    id: string;
+    client: string;
+    start: string;
+    end: string;
+    schema_version?: "1.0" | undefined;
+    created_by?: string | undefined;
+    created_at?: string | undefined;
+    hdus?: string[] | undefined;
+    capacity?: {
+        total: number;
+        by_dev_type?: Partial<Record<"greenfield" | "brownfield-feature" | "brownfield-refactor" | "modernizacion" | "integracion-externa", number>> | undefined;
+    } | undefined;
+    goal?: string | null | undefined;
+}>;
+type Sprint = z.infer<typeof SprintSchema>;
+declare const SprintCurrentSchema: z.ZodObject<{
+    client: z.ZodString;
+    current_sprint: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    client: string;
+    current_sprint: string;
+}, {
+    client: string;
+    current_sprint: string;
+}>;
+type SprintCurrent = z.infer<typeof SprintCurrentSchema>;
+declare function getSprintsDir(contextRepoRoot: string): string;
+declare function getSprintPath(contextRepoRoot: string, id: string): string;
+declare function getSprintCurrentPath(contextRepoRoot: string): string;
+declare function loadSprint(contextRepoRoot: string, id: string): Sprint | null;
+declare function saveSprint(contextRepoRoot: string, sprint: Sprint): void;
+declare function loadCurrentSprint(contextRepoRoot: string): SprintCurrent | null;
+declare function saveCurrentSprint(contextRepoRoot: string, current: SprintCurrent): void;
+declare function clearCurrentSprint(contextRepoRoot: string): void;
+declare function listSprints(contextRepoRoot: string): Sprint[];
+declare function nextSprintId(contextRepoRoot: string): string;
+
+/**
  * GitProvider — abstracción provider-agnóstica (D-6 Parte 3 del rediseño).
  *
  * Soporta GitLab (cloud + self-hosted) y GitHub (cloud + Enterprise) detrás
@@ -1923,4 +2020,4 @@ declare function inferProviderType(host: GitHost | undefined, baseUrl: string): 
 
 declare const CLI_VERSION: string;
 
-export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type AuditHeader, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, type ClientStateName, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, HDU_PRIORITIES, HDU_STATUSES, type Hdu, type HduFrontmatter, HduFrontmatterSchema, type HduIndex, type HduIndexEntry, HduIndexEntrySchema, HduIndexSchema, type HduPriority, type HduStatus, type HduTransition, HduTransitionSchema, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, type ParsedAuditedFile, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, type SaveCatalogOpts, type SaveStackConfigOpts, SessionIOError, type SessionState, SessionStateSchema, type Severity, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TelemetryConfig, TelemetryConfigSchema, type TelemetryEvent, TelemetryEventSchema, type TelemetryStats, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, appendTransition, buildAuditHeader, canHduTransitionTo, canTransitionTo, computeTelemetryStats, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHduFilePath, getHduIndexPath, getHduTransitionsPath, getHdusDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getStackConfigPath, getTelemetryConfigPath, getTelemetryEventsPath, hasCatalog, hasSession, hasStackConfig, hashUser, inferProviderType, isAppOrigin, isAuditedAndUnmodified, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, isTelemetryEnabled, jsonError, jsonSuccess, legalNextStatuses, listHdus, loadCatalog, loadContextRepoMarker, loadHdu, loadHduIndex, loadSession, loadStackConfig, loadTelemetryConfig, looksLikeLegacyMasterConfig, nextNaturalState, parseAuditedFile, parseHduFile, parseMarkdownCatalog, partition, readClientState, readTelemetryEvents, readTransitions, recordCommandResult, recordTelemetry, regenerateHduIndex, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, sanitizeArgs, saveCatalog, saveContextRepoMarker, saveHdu, saveHduIndex, saveSession, saveStackConfig, saveTelemetryConfig, serializeHdu, sha256Body, suggestedCommandFor, suggestedNextStep, updateClientState, wasManuallyEdited, writeClientState, writeWithAudit };
+export { APP_ORIGINS, APP_ROLES, APP_STATUSES, type Anomaly, type AppOrigin, type AppRole, type AppStatus, type AuditHeader, type Blocker, type BranchProtectionRules, CLIENT_STATES, CLI_VERSION, type Catalog, type CatalogApp, CatalogAppSchema, CatalogSchema, type ClientState, type ClientStateName, ClientStateSchema, type ContextRepoMarker, ContextRepoSchema, type CreatePullRequestOpts, type CreateRepoOpts, DEV_TYPES, DefaultsSchema, type DetectFlowStateOptions, type DevType, type DevTypeMeta, DevTypeSchema, type DevTypeSource, DevTypeSourceSchema, ERROR_CODES, type EnforcementRule, type ErrorCode, type EvaluateOptions, type EvaluationContext, type EvaluationResult, type FileContent, type FlowState, FlowStateSchema, GitHubProvider, GitLabProvider, type GitProvider, HDU_PRIORITIES, HDU_STATUSES, type Hdu, type HduFrontmatter, HduFrontmatterSchema, type HduIndex, type HduIndexEntry, HduIndexEntrySchema, HduIndexSchema, type HduPriority, type HduStatus, type HduTransition, HduTransitionSchema, type JsonError, type JsonModeOpts, type JsonOutput, type JsonSuccess, NamingSchema, NotImplementedError, PROVIDERS, type ParsedAuditedFile, ProviderError, type ProviderType, type PullRequestRef, RULES, type RepoMeta, type SaveCatalogOpts, type SaveStackConfigOpts, SessionIOError, type SessionState, SessionStateSchema, type Severity, type Sprint, SprintCapacitySchema, type SprintCurrent, SprintCurrentSchema, SprintSchema, type StackConfig, StackConfigSchema, StackDevflowSchema, StackInfraSchema, StackTemplatesSchema, type Task, type TelemetryConfig, TelemetryConfigSchema, type TelemetryEvent, TelemetryEventSchema, type TelemetryStats, type TokenValidation, type ValidateTokenOpts, type Vendor, type WebhookOpts, appendTransition, buildAuditHeader, canHduTransitionTo, canTransitionTo, clearCurrentSprint, computeTelemetryStats, createInitialSession, createProvider, detectFlowState, emitJson, enforcementRuleIdsForDevType, evaluateRules, exitCodeFor, findDevFlowProjectRoot, formatDoctorOutput, formatJson, getCatalogMarkdownPath, getCatalogYamlPath, getClaudeCommandsDir, getClaudeGlobalSettingsPath, getClaudeHome, getClaudeSkillsDir, getClientStatePath, getContextRepoMarkerPath, getDevflowDir, getHduFilePath, getHduIndexPath, getHduTransitionsPath, getHdusDir, getHeartbeatLogPath, getProjectClaudeDir, getProjectClaudeSettingsPath, getProjectRoot, getSessionPath, getSprintCurrentPath, getSprintPath, getSprintsDir, getStackConfigPath, getTelemetryConfigPath, getTelemetryEventsPath, hasCatalog, hasSession, hasStackConfig, hashUser, inferProviderType, isAppOrigin, isAuditedAndUnmodified, isBrownfield, isClaudeCodeInstalled, isContextRepo, isDevFlowProject, isDevType, isJsonMode, isTelemetryEnabled, jsonError, jsonSuccess, legalNextStatuses, listHdus, listSprints, loadCatalog, loadContextRepoMarker, loadCurrentSprint, loadHdu, loadHduIndex, loadSession, loadSprint, loadStackConfig, loadTelemetryConfig, looksLikeLegacyMasterConfig, nextNaturalState, nextSprintId, parseAuditedFile, parseHduFile, parseMarkdownCatalog, partition, readClientState, readTelemetryEvents, readTransitions, recordCommandResult, recordTelemetry, regenerateHduIndex, renderCatalogMarkdown, requiresBaseline, requiresRepoContext, rulesForDevType, sanitizeArgs, saveCatalog, saveContextRepoMarker, saveCurrentSprint, saveHdu, saveHduIndex, saveSession, saveSprint, saveStackConfig, saveTelemetryConfig, serializeHdu, sha256Body, suggestedCommandFor, suggestedNextStep, updateClientState, wasManuallyEdited, writeClientState, writeWithAudit };

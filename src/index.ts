@@ -38,6 +38,9 @@ export * from './utils/telemetry.js';
 // Audit headers + checksums (S7-2 / R-3) — detecta edición manual vs auto-gen
 export * from './utils/audit.js';
 
+// Sprints (S7-5 / B.8-B.9 Apéndice) — YAML simple para planning
+export * from './types/sprint.js';
+
 // Provider abstraction (S1-8 / D-6 Parte 3) — GitLab + GitHub unificados.
 export * from './providers/types.js';
 export { GitLabProvider } from './providers/gitlab.js';

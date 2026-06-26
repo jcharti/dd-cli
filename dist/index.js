@@ -1,6 +1,13 @@
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+
 // src/index.ts
-import { readFileSync as readFileSync11 } from "fs";
-import * as path12 from "path";
+import { readFileSync as readFileSync12 } from "fs";
+import * as path13 from "path";
 import { fileURLToPath } from "url";
 
 // src/types/dev-type.ts
@@ -1619,6 +1626,104 @@ function computeTelemetryStats(events) {
   };
 }
 
+// src/types/sprint.ts
+import { z as z10 } from "zod";
+import { existsSync as existsSync13, mkdirSync as mkdirSync10, readFileSync as readFileSync11, writeFileSync as writeFileSync10, readdirSync as readdirSync2 } from "fs";
+import * as path12 from "path";
+import * as yaml8 from "js-yaml";
+var SprintCapacitySchema = z10.object({
+  total: z10.number().int().nonnegative(),
+  // días-dev
+  by_dev_type: z10.record(z10.enum(DEV_TYPES), z10.number().int().nonnegative()).default({})
+});
+var SprintSchema = z10.object({
+  schema_version: z10.literal("1.0").default("1.0"),
+  id: z10.string().regex(/^SPRINT-\d+$/, "Debe ser SPRINT-NN"),
+  client: z10.string(),
+  start: z10.string(),
+  // YYYY-MM-DD
+  end: z10.string(),
+  capacity: SprintCapacitySchema.optional(),
+  hdus: z10.array(z10.string()).default([]),
+  // HDU IDs
+  goal: z10.string().nullable().default(null),
+  created_by: z10.string().email().optional(),
+  created_at: z10.string().optional()
+});
+var SprintCurrentSchema = z10.object({
+  client: z10.string(),
+  current_sprint: z10.string()
+  // SPRINT-NN
+});
+var SPRINTS_DIR = "sprints";
+var CURRENT_FILE = "_current.yml";
+function getSprintsDir(contextRepoRoot) {
+  return path12.join(contextRepoRoot, SPRINTS_DIR);
+}
+function getSprintPath(contextRepoRoot, id) {
+  return path12.join(getSprintsDir(contextRepoRoot), `${id}.yml`);
+}
+function getSprintCurrentPath(contextRepoRoot) {
+  return path12.join(getSprintsDir(contextRepoRoot), CURRENT_FILE);
+}
+function loadSprint(contextRepoRoot, id) {
+  const p = getSprintPath(contextRepoRoot, id);
+  if (!existsSync13(p)) return null;
+  const raw = readFileSync11(p, "utf-8");
+  const parsed = yaml8.load(raw);
+  const result = SprintSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`${id}.yml inv\xE1lido en ${p}:
+${result.error.message}`);
+  }
+  return result.data;
+}
+function saveSprint(contextRepoRoot, sprint) {
+  const dir = getSprintsDir(contextRepoRoot);
+  if (!existsSync13(dir)) mkdirSync10(dir, { recursive: true });
+  const validated = SprintSchema.parse(sprint);
+  writeFileSync10(getSprintPath(contextRepoRoot, sprint.id), yaml8.dump(validated, { indent: 2 }), "utf-8");
+}
+function loadCurrentSprint(contextRepoRoot) {
+  const p = getSprintCurrentPath(contextRepoRoot);
+  if (!existsSync13(p)) return null;
+  const raw = readFileSync11(p, "utf-8");
+  const parsed = yaml8.load(raw);
+  const result = SprintCurrentSchema.safeParse(parsed);
+  if (!result.success) return null;
+  return result.data;
+}
+function saveCurrentSprint(contextRepoRoot, current) {
+  const dir = getSprintsDir(contextRepoRoot);
+  if (!existsSync13(dir)) mkdirSync10(dir, { recursive: true });
+  writeFileSync10(getSprintCurrentPath(contextRepoRoot), yaml8.dump(current, { indent: 2 }), "utf-8");
+}
+function clearCurrentSprint(contextRepoRoot) {
+  const p = getSprintCurrentPath(contextRepoRoot);
+  if (existsSync13(p)) {
+    const fs = __require("fs");
+    fs.unlinkSync(p);
+  }
+}
+function listSprints(contextRepoRoot) {
+  const dir = getSprintsDir(contextRepoRoot);
+  if (!existsSync13(dir)) return [];
+  const files = readdirSync2(dir).filter((f) => /^SPRINT-\d+\.yml$/.test(f));
+  return files.map((f) => {
+    try {
+      return loadSprint(contextRepoRoot, f.replace(/\.yml$/, ""));
+    } catch {
+      return null;
+    }
+  }).filter((s) => s !== null);
+}
+function nextSprintId(contextRepoRoot) {
+  const sprints = listSprints(contextRepoRoot);
+  const ids = sprints.map((s) => s.id.match(/^SPRINT-(\d+)$/)).filter((m) => m !== null).map((m) => Number.parseInt(m[1] ?? "0", 10));
+  const next = ids.length === 0 ? 1 : Math.max(...ids) + 1;
+  return `SPRINT-${next}`;
+}
+
 // src/providers/types.ts
 var ProviderError = class extends Error {
   constructor(message, cause) {
@@ -2127,15 +2232,15 @@ function defaultBaseUrlFor(type, raw) {
 // src/index.ts
 function readPkgVersion() {
   try {
-    const here = path12.dirname(fileURLToPath(import.meta.url));
+    const here = path13.dirname(fileURLToPath(import.meta.url));
     const candidates = [
-      path12.resolve(here, "../package.json"),
-      path12.resolve(here, "../../package.json"),
-      path12.resolve(here, "../../../package.json")
+      path13.resolve(here, "../package.json"),
+      path13.resolve(here, "../../package.json"),
+      path13.resolve(here, "../../../package.json")
     ];
     for (const c of candidates) {
       try {
-        const pkg = JSON.parse(readFileSync11(c, "utf-8"));
+        const pkg = JSON.parse(readFileSync12(c, "utf-8"));
         if (typeof pkg.version === "string") return pkg.version;
       } catch {
       }
@@ -2176,6 +2281,9 @@ export {
   RULES,
   SessionIOError,
   SessionStateSchema,
+  SprintCapacitySchema,
+  SprintCurrentSchema,
+  SprintSchema,
   StackConfigSchema,
   StackDevflowSchema,
   StackInfraSchema,
@@ -2186,6 +2294,7 @@ export {
   buildAuditHeader,
   canHduTransitionTo,
   canTransitionTo,
+  clearCurrentSprint,
   computeTelemetryStats,
   createInitialSession,
   createProvider,
@@ -2215,6 +2324,9 @@ export {
   getProjectClaudeSettingsPath,
   getProjectRoot,
   getSessionPath,
+  getSprintCurrentPath,
+  getSprintPath,
+  getSprintsDir,
   getStackConfigPath,
   getTelemetryConfigPath,
   getTelemetryEventsPath,
@@ -2236,15 +2348,19 @@ export {
   jsonSuccess,
   legalNextStatuses,
   listHdus,
+  listSprints,
   loadCatalog,
   loadContextRepoMarker,
+  loadCurrentSprint,
   loadHdu,
   loadHduIndex,
   loadSession,
+  loadSprint,
   loadStackConfig,
   loadTelemetryConfig,
   looksLikeLegacyMasterConfig,
   nextNaturalState,
+  nextSprintId,
   parseAuditedFile,
   parseHduFile,
   parseMarkdownCatalog,
@@ -2262,9 +2378,11 @@ export {
   sanitizeArgs,
   saveCatalog,
   saveContextRepoMarker,
+  saveCurrentSprint,
   saveHdu,
   saveHduIndex,
   saveSession,
+  saveSprint,
   saveStackConfig,
   saveTelemetryConfig,
   serializeHdu,

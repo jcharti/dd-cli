@@ -1,20 +1,21 @@
 #!/usr/bin/env node
-// src/bin/dd-cli.ts
-import { Command } from "commander";
-
-// src/index.ts
-import { readFileSync as readFileSync11 } from "fs";
-import * as path12 from "path";
-import { fileURLToPath } from "url";
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 
 // src/types/dev-type.ts
-var DEV_TYPES = [
-  "greenfield",
-  "brownfield-feature",
-  "brownfield-refactor",
-  "modernizacion",
-  "integracion-externa"
-];
 function isDevType(value) {
   return typeof value === "string" && DEV_TYPES.includes(value);
 }
@@ -24,8 +25,384 @@ function requiresRepoContext(type) {
 function requiresBaseline(type) {
   return type === "brownfield-refactor";
 }
+var DEV_TYPES;
+var init_dev_type = __esm({
+  "src/types/dev-type.ts"() {
+    "use strict";
+    DEV_TYPES = [
+      "greenfield",
+      "brownfield-feature",
+      "brownfield-refactor",
+      "modernizacion",
+      "integracion-externa"
+    ];
+  }
+});
+
+// src/types/hdu.ts
+var hdu_exports = {};
+__export(hdu_exports, {
+  HDU_PRIORITIES: () => HDU_PRIORITIES,
+  HDU_STATUSES: () => HDU_STATUSES,
+  HduFrontmatterSchema: () => HduFrontmatterSchema,
+  HduIndexEntrySchema: () => HduIndexEntrySchema,
+  HduIndexSchema: () => HduIndexSchema,
+  HduTransitionSchema: () => HduTransitionSchema,
+  appendTransition: () => appendTransition,
+  canHduTransitionTo: () => canHduTransitionTo,
+  getHduFilePath: () => getHduFilePath,
+  getHduIndexPath: () => getHduIndexPath,
+  getHduTransitionsPath: () => getHduTransitionsPath,
+  getHdusDir: () => getHdusDir,
+  legalNextStatuses: () => legalNextStatuses,
+  listHdus: () => listHdus,
+  loadHdu: () => loadHdu,
+  loadHduIndex: () => loadHduIndex,
+  parseHduFile: () => parseHduFile,
+  readTransitions: () => readTransitions,
+  regenerateHduIndex: () => regenerateHduIndex,
+  saveHdu: () => saveHdu,
+  saveHduIndex: () => saveHduIndex,
+  serializeHdu: () => serializeHdu
+});
+import { z as z8 } from "zod";
+import { existsSync as existsSync11, mkdirSync as mkdirSync8, readFileSync as readFileSync9, writeFileSync as writeFileSync8, appendFileSync, readdirSync } from "fs";
+import * as path10 from "path";
+import * as yaml6 from "js-yaml";
+function getHdusDir(contextRepoRoot) {
+  return path10.join(contextRepoRoot, HDUS_DIR);
+}
+function getHduTransitionsPath(contextRepoRoot) {
+  return path10.join(getHdusDir(contextRepoRoot), TRANSITIONS_FILE);
+}
+function getHduIndexPath(contextRepoRoot) {
+  return path10.join(getHdusDir(contextRepoRoot), INDEX_FILE);
+}
+function getHduFilePath(contextRepoRoot, id, slug) {
+  return path10.join(getHdusDir(contextRepoRoot), `${id}-${slug}.md`);
+}
+function parseHduFile(content, filename) {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) {
+    throw new Error(`HDU "${filename}" no tiene frontmatter YAML v\xE1lido.`);
+  }
+  const fmRaw = yaml6.load(match[1] ?? "");
+  const result = HduFrontmatterSchema.safeParse(fmRaw);
+  if (!result.success) {
+    throw new Error(`Frontmatter inv\xE1lido en "${filename}":
+${result.error.message}`);
+  }
+  return {
+    frontmatter: result.data,
+    body: match[2] ?? "",
+    filename
+  };
+}
+function serializeHdu(hdu) {
+  const fm = HduFrontmatterSchema.parse(hdu.frontmatter);
+  const yamlStr = yaml6.dump(fm, { indent: 2, lineWidth: 120 });
+  return `---
+${yamlStr}---
+${hdu.body}`;
+}
+function loadHdu(contextRepoRoot, filename) {
+  const fullPath = path10.join(getHdusDir(contextRepoRoot), filename);
+  const content = readFileSync9(fullPath, "utf-8");
+  return parseHduFile(content, filename);
+}
+function saveHdu(contextRepoRoot, hdu) {
+  const dir = getHdusDir(contextRepoRoot);
+  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
+  const content = serializeHdu(hdu);
+  writeFileSync8(path10.join(dir, hdu.filename), content, "utf-8");
+}
+function listHdus(contextRepoRoot) {
+  const dir = getHdusDir(contextRepoRoot);
+  if (!existsSync11(dir)) return [];
+  const files = readdirSync(dir).filter((f) => f.endsWith(".md") && !f.startsWith("_"));
+  return files.map((f) => {
+    try {
+      return loadHdu(contextRepoRoot, f);
+    } catch {
+      return null;
+    }
+  }).filter((h) => h !== null);
+}
+function appendTransition(contextRepoRoot, transition) {
+  const dir = getHdusDir(contextRepoRoot);
+  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
+  const validated = HduTransitionSchema.parse(transition);
+  const line = JSON.stringify(validated) + "\n";
+  appendFileSync(getHduTransitionsPath(contextRepoRoot), line, "utf-8");
+}
+function readTransitions(contextRepoRoot) {
+  const p = getHduTransitionsPath(contextRepoRoot);
+  if (!existsSync11(p)) return [];
+  return readFileSync9(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
+    try {
+      return HduTransitionSchema.parse(JSON.parse(l));
+    } catch {
+      return null;
+    }
+  }).filter((t) => t !== null);
+}
+function loadHduIndex(contextRepoRoot) {
+  const p = getHduIndexPath(contextRepoRoot);
+  if (!existsSync11(p)) {
+    return HduIndexSchema.parse({
+      generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+      hdus: []
+    });
+  }
+  const raw = readFileSync9(p, "utf-8");
+  const parsed = yaml6.load(raw);
+  const result = HduIndexSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`_index.yml inv\xE1lido en ${p}:
+${result.error.message}`);
+  }
+  return result.data;
+}
+function saveHduIndex(contextRepoRoot, index) {
+  const dir = getHdusDir(contextRepoRoot);
+  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
+  const validated = HduIndexSchema.parse(index);
+  writeFileSync8(getHduIndexPath(contextRepoRoot), yaml6.dump(validated, { indent: 2 }), "utf-8");
+}
+function regenerateHduIndex(contextRepoRoot) {
+  const hdus = listHdus(contextRepoRoot);
+  const ids = hdus.map((h) => h.frontmatter.id.match(/^HDU-(\d+)/)).filter((m) => m !== null).map((m) => Number.parseInt(m[1] ?? "0", 10));
+  const nextHduId2 = ids.length > 0 ? Math.max(...ids) + 1 : 1;
+  const index = {
+    schema_version: "1.0",
+    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    next_hdu_id: nextHduId2,
+    hdus: hdus.map((h) => HduIndexEntrySchema.parse({
+      id: h.frontmatter.id,
+      title: h.frontmatter.title,
+      status: h.frontmatter.status,
+      dev_type: h.frontmatter.dev_type,
+      priority: h.frontmatter.priority,
+      apps_affected: h.frontmatter.apps_affected,
+      assigned_to: h.frontmatter.assigned_to,
+      sprint: h.frontmatter.sprint,
+      created_at: h.frontmatter.created_at
+    }))
+  };
+  saveHduIndex(contextRepoRoot, index);
+  return index;
+}
+function canHduTransitionTo(from, to) {
+  return HDU_TRANSITIONS[from]?.includes(to) ?? false;
+}
+function legalNextStatuses(from) {
+  return [...HDU_TRANSITIONS[from] ?? []];
+}
+var HDU_STATUSES, HDU_PRIORITIES, HduFrontmatterSchema, HduTransitionSchema, HduIndexEntrySchema, HduIndexSchema, HDUS_DIR, TRANSITIONS_FILE, INDEX_FILE, HDU_TRANSITIONS;
+var init_hdu = __esm({
+  "src/types/hdu.ts"() {
+    "use strict";
+    init_dev_type();
+    HDU_STATUSES = ["draft", "approved", "in-progress", "in-review", "done", "cancelled"];
+    HDU_PRIORITIES = ["baja", "media", "alta", "cr\xEDtica"];
+    HduFrontmatterSchema = z8.object({
+      id: z8.string().regex(/^HDU-(\d+|LOCAL-[a-z0-9-]+)$/, "Debe ser HDU-NNN o HDU-LOCAL-<slug>"),
+      title: z8.string().min(1),
+      status: z8.enum(HDU_STATUSES).default("draft"),
+      dev_type: z8.enum(DEV_TYPES).optional(),
+      dev_type_locked: z8.boolean().default(false),
+      dev_type_source: z8.string().optional(),
+      priority: z8.enum(HDU_PRIORITIES).default("media"),
+      apps_affected: z8.array(z8.string()).default([]),
+      assigned_to: z8.string().email().nullable().default(null),
+      created_by: z8.string().email().optional(),
+      created_at: z8.string(),
+      approved_by: z8.string().email().nullable().default(null),
+      approved_at: z8.string().nullable().default(null),
+      sprint: z8.string().nullable().default(null),
+      lead_time_estimated_days: z8.number().int().min(0).nullable().default(null),
+      references: z8.array(z8.string()).default([]),
+      // ej: HDU-123 (HDU previa cancelled)
+      tags: z8.array(z8.string()).default([])
+    });
+    HduTransitionSchema = z8.object({
+      ts: z8.string(),
+      hdu: z8.string(),
+      from: z8.enum(HDU_STATUSES).nullable(),
+      to: z8.enum(HDU_STATUSES),
+      by: z8.string(),
+      // email del actor o "system" para CI jobs
+      reason: z8.string().nullable().default(null),
+      via: z8.enum(["cli", "pr-merge", "ci-job", "direct-commit"]).default("cli")
+    });
+    HduIndexEntrySchema = z8.object({
+      id: z8.string(),
+      title: z8.string(),
+      status: z8.enum(HDU_STATUSES),
+      dev_type: z8.enum(DEV_TYPES).optional(),
+      priority: z8.enum(HDU_PRIORITIES),
+      apps_affected: z8.array(z8.string()),
+      assigned_to: z8.string().email().nullable(),
+      sprint: z8.string().nullable(),
+      created_at: z8.string()
+    });
+    HduIndexSchema = z8.object({
+      schema_version: z8.literal("1.0").default("1.0"),
+      generated_at: z8.string(),
+      next_hdu_id: z8.number().int().min(1).default(1),
+      hdus: z8.array(HduIndexEntrySchema).default([])
+    });
+    HDUS_DIR = "hdus";
+    TRANSITIONS_FILE = "_transitions.jsonl";
+    INDEX_FILE = "_index.yml";
+    HDU_TRANSITIONS = {
+      "draft": ["approved", "cancelled"],
+      "approved": ["in-progress", "cancelled", "draft"],
+      // rollback a draft posible
+      "in-progress": ["in-review", "approved", "cancelled"],
+      // pausar = approved nuevamente
+      "in-review": ["done", "in-progress", "cancelled"],
+      // rechazar = volver a in-progress
+      "done": [],
+      // terminal
+      "cancelled": []
+      // terminal
+    };
+  }
+});
+
+// src/types/sprint.ts
+var sprint_exports = {};
+__export(sprint_exports, {
+  SprintCapacitySchema: () => SprintCapacitySchema,
+  SprintCurrentSchema: () => SprintCurrentSchema,
+  SprintSchema: () => SprintSchema,
+  clearCurrentSprint: () => clearCurrentSprint,
+  getSprintCurrentPath: () => getSprintCurrentPath,
+  getSprintPath: () => getSprintPath,
+  getSprintsDir: () => getSprintsDir,
+  listSprints: () => listSprints,
+  loadCurrentSprint: () => loadCurrentSprint,
+  loadSprint: () => loadSprint,
+  nextSprintId: () => nextSprintId,
+  saveCurrentSprint: () => saveCurrentSprint,
+  saveSprint: () => saveSprint
+});
+import { z as z10 } from "zod";
+import { existsSync as existsSync13, mkdirSync as mkdirSync10, readFileSync as readFileSync11, writeFileSync as writeFileSync10, readdirSync as readdirSync2 } from "fs";
+import * as path12 from "path";
+import * as yaml8 from "js-yaml";
+function getSprintsDir(contextRepoRoot) {
+  return path12.join(contextRepoRoot, SPRINTS_DIR);
+}
+function getSprintPath(contextRepoRoot, id) {
+  return path12.join(getSprintsDir(contextRepoRoot), `${id}.yml`);
+}
+function getSprintCurrentPath(contextRepoRoot) {
+  return path12.join(getSprintsDir(contextRepoRoot), CURRENT_FILE);
+}
+function loadSprint(contextRepoRoot, id) {
+  const p = getSprintPath(contextRepoRoot, id);
+  if (!existsSync13(p)) return null;
+  const raw = readFileSync11(p, "utf-8");
+  const parsed = yaml8.load(raw);
+  const result = SprintSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`${id}.yml inv\xE1lido en ${p}:
+${result.error.message}`);
+  }
+  return result.data;
+}
+function saveSprint(contextRepoRoot, sprint) {
+  const dir = getSprintsDir(contextRepoRoot);
+  if (!existsSync13(dir)) mkdirSync10(dir, { recursive: true });
+  const validated = SprintSchema.parse(sprint);
+  writeFileSync10(getSprintPath(contextRepoRoot, sprint.id), yaml8.dump(validated, { indent: 2 }), "utf-8");
+}
+function loadCurrentSprint(contextRepoRoot) {
+  const p = getSprintCurrentPath(contextRepoRoot);
+  if (!existsSync13(p)) return null;
+  const raw = readFileSync11(p, "utf-8");
+  const parsed = yaml8.load(raw);
+  const result = SprintCurrentSchema.safeParse(parsed);
+  if (!result.success) return null;
+  return result.data;
+}
+function saveCurrentSprint(contextRepoRoot, current) {
+  const dir = getSprintsDir(contextRepoRoot);
+  if (!existsSync13(dir)) mkdirSync10(dir, { recursive: true });
+  writeFileSync10(getSprintCurrentPath(contextRepoRoot), yaml8.dump(current, { indent: 2 }), "utf-8");
+}
+function clearCurrentSprint(contextRepoRoot) {
+  const p = getSprintCurrentPath(contextRepoRoot);
+  if (existsSync13(p)) {
+    const fs = __require("fs");
+    fs.unlinkSync(p);
+  }
+}
+function listSprints(contextRepoRoot) {
+  const dir = getSprintsDir(contextRepoRoot);
+  if (!existsSync13(dir)) return [];
+  const files = readdirSync2(dir).filter((f) => /^SPRINT-\d+\.yml$/.test(f));
+  return files.map((f) => {
+    try {
+      return loadSprint(contextRepoRoot, f.replace(/\.yml$/, ""));
+    } catch {
+      return null;
+    }
+  }).filter((s) => s !== null);
+}
+function nextSprintId(contextRepoRoot) {
+  const sprints = listSprints(contextRepoRoot);
+  const ids = sprints.map((s) => s.id.match(/^SPRINT-(\d+)$/)).filter((m) => m !== null).map((m) => Number.parseInt(m[1] ?? "0", 10));
+  const next = ids.length === 0 ? 1 : Math.max(...ids) + 1;
+  return `SPRINT-${next}`;
+}
+var SprintCapacitySchema, SprintSchema, SprintCurrentSchema, SPRINTS_DIR, CURRENT_FILE;
+var init_sprint = __esm({
+  "src/types/sprint.ts"() {
+    "use strict";
+    init_dev_type();
+    SprintCapacitySchema = z10.object({
+      total: z10.number().int().nonnegative(),
+      // días-dev
+      by_dev_type: z10.record(z10.enum(DEV_TYPES), z10.number().int().nonnegative()).default({})
+    });
+    SprintSchema = z10.object({
+      schema_version: z10.literal("1.0").default("1.0"),
+      id: z10.string().regex(/^SPRINT-\d+$/, "Debe ser SPRINT-NN"),
+      client: z10.string(),
+      start: z10.string(),
+      // YYYY-MM-DD
+      end: z10.string(),
+      capacity: SprintCapacitySchema.optional(),
+      hdus: z10.array(z10.string()).default([]),
+      // HDU IDs
+      goal: z10.string().nullable().default(null),
+      created_by: z10.string().email().optional(),
+      created_at: z10.string().optional()
+    });
+    SprintCurrentSchema = z10.object({
+      client: z10.string(),
+      current_sprint: z10.string()
+      // SPRINT-NN
+    });
+    SPRINTS_DIR = "sprints";
+    CURRENT_FILE = "_current.yml";
+  }
+});
+
+// src/bin/dd-cli.ts
+import { Command } from "commander";
+
+// src/index.ts
+init_dev_type();
+import { readFileSync as readFileSync12 } from "fs";
+import * as path13 from "path";
+import { fileURLToPath } from "url";
 
 // src/types/session.ts
+init_dev_type();
 import { z } from "zod";
 var DevTypeSchema = z.enum(DEV_TYPES);
 var DevTypeSourceSchema = z.enum([
@@ -154,6 +531,7 @@ function createInitialSession(cliVersion) {
 }
 
 // src/flow-state/detect.ts
+init_dev_type();
 import { existsSync, readFileSync, statSync } from "fs";
 import * as path from "path";
 import { globbySync } from "globby";
@@ -1062,6 +1440,7 @@ import * as path8 from "path";
 import * as yaml4 from "js-yaml";
 
 // src/types/project-config.ts
+init_dev_type();
 import { z as z5 } from "zod";
 import { readFileSync as readFileSync6, writeFileSync as writeFileSync5, existsSync as existsSync8, mkdirSync as mkdirSync5 } from "fs";
 import * as path7 from "path";
@@ -1143,6 +1522,7 @@ function buildProjectConfig(opts) {
 }
 
 // src/types/catalog.ts
+init_dev_type();
 var APP_STATUSES = ["prod", "qa", "dev", "deprecated", "inactive", "empty", "unknown"];
 var APP_ROLES = ["provider", "consumer", "portal", "standalone", "data-layer", "integration", "unknown"];
 var CatalogAppSchema = z6.object({
@@ -1339,188 +1719,8 @@ function saveContextRepoMarker(repoRoot, marker) {
   writeFileSync7(getContextRepoMarkerPath(repoRoot), yamlStr, "utf-8");
 }
 
-// src/types/hdu.ts
-import { z as z8 } from "zod";
-import { existsSync as existsSync11, mkdirSync as mkdirSync8, readFileSync as readFileSync9, writeFileSync as writeFileSync8, appendFileSync, readdirSync } from "fs";
-import * as path10 from "path";
-import * as yaml6 from "js-yaml";
-var HDU_STATUSES = ["draft", "approved", "in-progress", "in-review", "done", "cancelled"];
-var HDU_PRIORITIES = ["baja", "media", "alta", "cr\xEDtica"];
-var HduFrontmatterSchema = z8.object({
-  id: z8.string().regex(/^HDU-(\d+|LOCAL-[a-z0-9-]+)$/, "Debe ser HDU-NNN o HDU-LOCAL-<slug>"),
-  title: z8.string().min(1),
-  status: z8.enum(HDU_STATUSES).default("draft"),
-  dev_type: z8.enum(DEV_TYPES).optional(),
-  dev_type_locked: z8.boolean().default(false),
-  dev_type_source: z8.string().optional(),
-  priority: z8.enum(HDU_PRIORITIES).default("media"),
-  apps_affected: z8.array(z8.string()).default([]),
-  assigned_to: z8.string().email().nullable().default(null),
-  created_by: z8.string().email().optional(),
-  created_at: z8.string(),
-  approved_by: z8.string().email().nullable().default(null),
-  approved_at: z8.string().nullable().default(null),
-  sprint: z8.string().nullable().default(null),
-  lead_time_estimated_days: z8.number().int().min(0).nullable().default(null),
-  references: z8.array(z8.string()).default([]),
-  // ej: HDU-123 (HDU previa cancelled)
-  tags: z8.array(z8.string()).default([])
-});
-var HduTransitionSchema = z8.object({
-  ts: z8.string(),
-  hdu: z8.string(),
-  from: z8.enum(HDU_STATUSES).nullable(),
-  to: z8.enum(HDU_STATUSES),
-  by: z8.string(),
-  // email del actor o "system" para CI jobs
-  reason: z8.string().nullable().default(null),
-  via: z8.enum(["cli", "pr-merge", "ci-job", "direct-commit"]).default("cli")
-});
-var HduIndexEntrySchema = z8.object({
-  id: z8.string(),
-  title: z8.string(),
-  status: z8.enum(HDU_STATUSES),
-  dev_type: z8.enum(DEV_TYPES).optional(),
-  priority: z8.enum(HDU_PRIORITIES),
-  apps_affected: z8.array(z8.string()),
-  assigned_to: z8.string().email().nullable(),
-  sprint: z8.string().nullable(),
-  created_at: z8.string()
-});
-var HduIndexSchema = z8.object({
-  schema_version: z8.literal("1.0").default("1.0"),
-  generated_at: z8.string(),
-  next_hdu_id: z8.number().int().min(1).default(1),
-  hdus: z8.array(HduIndexEntrySchema).default([])
-});
-var HDUS_DIR = "hdus";
-var TRANSITIONS_FILE = "_transitions.jsonl";
-var INDEX_FILE = "_index.yml";
-function getHdusDir(contextRepoRoot) {
-  return path10.join(contextRepoRoot, HDUS_DIR);
-}
-function getHduTransitionsPath(contextRepoRoot) {
-  return path10.join(getHdusDir(contextRepoRoot), TRANSITIONS_FILE);
-}
-function getHduIndexPath(contextRepoRoot) {
-  return path10.join(getHdusDir(contextRepoRoot), INDEX_FILE);
-}
-function getHduFilePath(contextRepoRoot, id, slug) {
-  return path10.join(getHdusDir(contextRepoRoot), `${id}-${slug}.md`);
-}
-function parseHduFile(content, filename) {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) {
-    throw new Error(`HDU "${filename}" no tiene frontmatter YAML v\xE1lido.`);
-  }
-  const fmRaw = yaml6.load(match[1] ?? "");
-  const result = HduFrontmatterSchema.safeParse(fmRaw);
-  if (!result.success) {
-    throw new Error(`Frontmatter inv\xE1lido en "${filename}":
-${result.error.message}`);
-  }
-  return {
-    frontmatter: result.data,
-    body: match[2] ?? "",
-    filename
-  };
-}
-function serializeHdu(hdu) {
-  const fm = HduFrontmatterSchema.parse(hdu.frontmatter);
-  const yamlStr = yaml6.dump(fm, { indent: 2, lineWidth: 120 });
-  return `---
-${yamlStr}---
-${hdu.body}`;
-}
-function loadHdu(contextRepoRoot, filename) {
-  const fullPath = path10.join(getHdusDir(contextRepoRoot), filename);
-  const content = readFileSync9(fullPath, "utf-8");
-  return parseHduFile(content, filename);
-}
-function saveHdu(contextRepoRoot, hdu) {
-  const dir = getHdusDir(contextRepoRoot);
-  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
-  const content = serializeHdu(hdu);
-  writeFileSync8(path10.join(dir, hdu.filename), content, "utf-8");
-}
-function listHdus(contextRepoRoot) {
-  const dir = getHdusDir(contextRepoRoot);
-  if (!existsSync11(dir)) return [];
-  const files = readdirSync(dir).filter((f) => f.endsWith(".md") && !f.startsWith("_"));
-  return files.map((f) => {
-    try {
-      return loadHdu(contextRepoRoot, f);
-    } catch {
-      return null;
-    }
-  }).filter((h) => h !== null);
-}
-function appendTransition(contextRepoRoot, transition) {
-  const dir = getHdusDir(contextRepoRoot);
-  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
-  const validated = HduTransitionSchema.parse(transition);
-  const line = JSON.stringify(validated) + "\n";
-  appendFileSync(getHduTransitionsPath(contextRepoRoot), line, "utf-8");
-}
-function readTransitions(contextRepoRoot) {
-  const p = getHduTransitionsPath(contextRepoRoot);
-  if (!existsSync11(p)) return [];
-  return readFileSync9(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
-    try {
-      return HduTransitionSchema.parse(JSON.parse(l));
-    } catch {
-      return null;
-    }
-  }).filter((t) => t !== null);
-}
-function saveHduIndex(contextRepoRoot, index) {
-  const dir = getHdusDir(contextRepoRoot);
-  if (!existsSync11(dir)) mkdirSync8(dir, { recursive: true });
-  const validated = HduIndexSchema.parse(index);
-  writeFileSync8(getHduIndexPath(contextRepoRoot), yaml6.dump(validated, { indent: 2 }), "utf-8");
-}
-function regenerateHduIndex(contextRepoRoot) {
-  const hdus = listHdus(contextRepoRoot);
-  const ids = hdus.map((h) => h.frontmatter.id.match(/^HDU-(\d+)/)).filter((m) => m !== null).map((m) => Number.parseInt(m[1] ?? "0", 10));
-  const nextHduId2 = ids.length > 0 ? Math.max(...ids) + 1 : 1;
-  const index = {
-    schema_version: "1.0",
-    generated_at: (/* @__PURE__ */ new Date()).toISOString(),
-    next_hdu_id: nextHduId2,
-    hdus: hdus.map((h) => HduIndexEntrySchema.parse({
-      id: h.frontmatter.id,
-      title: h.frontmatter.title,
-      status: h.frontmatter.status,
-      dev_type: h.frontmatter.dev_type,
-      priority: h.frontmatter.priority,
-      apps_affected: h.frontmatter.apps_affected,
-      assigned_to: h.frontmatter.assigned_to,
-      sprint: h.frontmatter.sprint,
-      created_at: h.frontmatter.created_at
-    }))
-  };
-  saveHduIndex(contextRepoRoot, index);
-  return index;
-}
-var HDU_TRANSITIONS = {
-  "draft": ["approved", "cancelled"],
-  "approved": ["in-progress", "cancelled", "draft"],
-  // rollback a draft posible
-  "in-progress": ["in-review", "approved", "cancelled"],
-  // pausar = approved nuevamente
-  "in-review": ["done", "in-progress", "cancelled"],
-  // rechazar = volver a in-progress
-  "done": [],
-  // terminal
-  "cancelled": []
-  // terminal
-};
-function canHduTransitionTo(from, to) {
-  return HDU_TRANSITIONS[from]?.includes(to) ?? false;
-}
-function legalNextStatuses(from) {
-  return [...HDU_TRANSITIONS[from] ?? []];
-}
+// src/index.ts
+init_hdu();
 
 // src/utils/telemetry.ts
 import { existsSync as existsSync12, mkdirSync as mkdirSync9, readFileSync as readFileSync10, writeFileSync as writeFileSync9, appendFileSync as appendFileSync2, statSync as statSync3 } from "fs";
@@ -1656,6 +1856,9 @@ function computeTelemetryStats(events) {
     newest_event: newest
   };
 }
+
+// src/index.ts
+init_sprint();
 
 // src/providers/types.ts
 var ProviderError = class extends Error {
@@ -2165,15 +2368,15 @@ function defaultBaseUrlFor(type, raw) {
 // src/index.ts
 function readPkgVersion() {
   try {
-    const here = path12.dirname(fileURLToPath(import.meta.url));
+    const here = path13.dirname(fileURLToPath(import.meta.url));
     const candidates = [
-      path12.resolve(here, "../package.json"),
-      path12.resolve(here, "../../package.json"),
-      path12.resolve(here, "../../../package.json")
+      path13.resolve(here, "../package.json"),
+      path13.resolve(here, "../../package.json"),
+      path13.resolve(here, "../../../package.json")
     ];
     for (const c3 of candidates) {
       try {
-        const pkg = JSON.parse(readFileSync11(c3, "utf-8"));
+        const pkg = JSON.parse(readFileSync12(c3, "utf-8"));
         if (typeof pkg.version === "string") return pkg.version;
       } catch {
       }
@@ -2185,8 +2388,8 @@ function readPkgVersion() {
 var CLI_VERSION = readPkgVersion();
 
 // src/commands/init.ts
-import { existsSync as existsSync13, readFileSync as readFileSync12, writeFileSync as writeFileSync10, mkdirSync as mkdirSync10, readdirSync as readdirSync2, statSync as statSync4, copyFileSync, rmSync } from "fs";
-import * as path13 from "path";
+import { existsSync as existsSync14, readFileSync as readFileSync13, writeFileSync as writeFileSync11, mkdirSync as mkdirSync11, readdirSync as readdirSync3, statSync as statSync4, copyFileSync, rmSync } from "fs";
+import * as path14 from "path";
 import { fileURLToPath as fileURLToPath2 } from "url";
 
 // src/utils/output.ts
@@ -2234,33 +2437,33 @@ var META_FILES = /* @__PURE__ */ new Set([
   "DISENO_INIT_CONTEXT.md"
 ]);
 function resolveSkillsSourceDir() {
-  const here = path13.dirname(fileURLToPath2(import.meta.url));
-  const bundled = path13.resolve(here, "..", "..", "skills");
-  if (existsSync13(bundled)) return bundled;
-  const monorepo = path13.resolve(here, "..", "..", "..", "skills");
-  if (existsSync13(monorepo)) return monorepo;
+  const here = path14.dirname(fileURLToPath2(import.meta.url));
+  const bundled = path14.resolve(here, "..", "..", "skills");
+  if (existsSync14(bundled)) return bundled;
+  const monorepo = path14.resolve(here, "..", "..", "..", "skills");
+  if (existsSync14(monorepo)) return monorepo;
   return null;
 }
 function copySkillsTree(srcDir, destDir) {
-  if (!existsSync13(destDir)) mkdirSync10(destDir, { recursive: true });
+  if (!existsSync14(destDir)) mkdirSync11(destDir, { recursive: true });
   const copied = [];
-  const entries = readdirSync2(srcDir);
+  const entries = readdirSync3(srcDir);
   for (const entry of entries) {
-    const srcPath = path13.join(srcDir, entry);
-    const destPath = path13.join(destDir, entry);
+    const srcPath = path14.join(srcDir, entry);
+    const destPath = path14.join(destDir, entry);
     const st = statSync4(srcPath);
     if (st.isDirectory()) {
       copied.push(...copySkillsTree(srcPath, destPath));
     } else if (st.isFile() && entry.endsWith(".md") && !META_FILES.has(entry)) {
       copyFileSync(srcPath, destPath);
-      copied.push(path13.relative(destDir, destPath));
+      copied.push(path14.relative(destDir, destPath));
     }
   }
   return copied;
 }
 function writeSkillsVersion() {
   const skillsDir = getClaudeSkillsDir();
-  writeFileSync10(path13.join(skillsDir, ".version"), `${CLI_VERSION}
+  writeFileSync11(path14.join(skillsDir, ".version"), `${CLI_VERSION}
 `, "utf-8");
 }
 function buildSettingsJson(existing = {}) {
@@ -2300,20 +2503,20 @@ function buildSettingsJson(existing = {}) {
 }
 async function runInit(opts = {}) {
   const projectRoot = getProjectRoot();
-  const claudeMdPath = path13.join(projectRoot, "CLAUDE.md");
-  if (!existsSync13(claudeMdPath) || opts.force) {
-    const here = path13.dirname(fileURLToPath2(import.meta.url));
-    const templatePath = path13.resolve(here, "..", "..", "templates", "CLAUDE.md.template");
-    if (existsSync13(templatePath)) {
-      const projectName = path13.basename(projectRoot);
-      let content = readFileSync12(templatePath, "utf-8");
+  const claudeMdPath = path14.join(projectRoot, "CLAUDE.md");
+  if (!existsSync14(claudeMdPath) || opts.force) {
+    const here = path14.dirname(fileURLToPath2(import.meta.url));
+    const templatePath = path14.resolve(here, "..", "..", "templates", "CLAUDE.md.template");
+    if (existsSync14(templatePath)) {
+      const projectName = path14.basename(projectRoot);
+      let content = readFileSync13(templatePath, "utf-8");
       content = content.replaceAll("{{PROJECT_NAME}}", projectName);
       content = content.replaceAll("{{STACK}}", "Completar en CLAUDE.md");
       content = content.replaceAll("{{INFRA}}", "Completar en CLAUDE.md");
       content = content.replaceAll("{{BACKEND_FRAMEWORK}}", "Completar en CLAUDE.md");
       content = content.replaceAll("{{FRONTEND_FRAMEWORK}}", "Completar en CLAUDE.md");
       content = content.replaceAll("{{DB}}", "Completar en CLAUDE.md");
-      writeFileSync10(claudeMdPath, content, "utf-8");
+      writeFileSync11(claudeMdPath, content, "utf-8");
     }
   }
   console.log(bold(`
@@ -2328,7 +2531,7 @@ DevFlow IA \u2014 init`));
   printOk(`Detectado Claude Code en ${getClaudeHome()}`);
   const devflowDir = getDevflowDir(projectRoot);
   const sessionPath = getSessionPath(projectRoot);
-  const sessionExists = existsSync13(sessionPath);
+  const sessionExists = existsSync14(sessionPath);
   if (sessionExists && !opts.force) {
     printWarn(`.devflow/session.json ya existe \u2014 usa --force para sobrescribir`);
   } else {
@@ -2356,14 +2559,14 @@ DevFlow IA \u2014 init`));
   }
   if (!opts.skipHooks) {
     const projectClaudeDir = getProjectClaudeDir(projectRoot);
-    if (!existsSync13(projectClaudeDir)) {
-      mkdirSync10(projectClaudeDir, { recursive: true });
+    if (!existsSync14(projectClaudeDir)) {
+      mkdirSync11(projectClaudeDir, { recursive: true });
     }
     const settingsPath = getProjectClaudeSettingsPath(projectRoot);
     let existing = {};
-    if (existsSync13(settingsPath)) {
+    if (existsSync14(settingsPath)) {
       try {
-        existing = JSON.parse(readFileSync12(settingsPath, "utf-8"));
+        existing = JSON.parse(readFileSync13(settingsPath, "utf-8"));
       } catch {
         if (!opts.force) {
           printErr(`.claude/settings.json existe pero no es JSON v\xE1lido \u2014 usa --force para sobrescribir`);
@@ -2372,12 +2575,12 @@ DevFlow IA \u2014 init`));
       }
     }
     const merged = buildSettingsJson(existing);
-    writeFileSync10(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+    writeFileSync11(settingsPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
     printOk(`Hooks configurados en .claude/settings.json`);
   } else {
     printDim(`  (skip hooks)`);
   }
-  if (existsSync13(path13.join(projectRoot, "CLAUDE.md"))) {
+  if (existsSync14(path14.join(projectRoot, "CLAUDE.md"))) {
     printOk(`CLAUDE.md generado con auto-onboarding`);
     printDim(`  Edita las variables {{...}} con los datos del proyecto`);
   }
@@ -2562,8 +2765,8 @@ function stageStatus(stageIndex, currentIndex, flowState) {
 }
 
 // src/commands/status-narrative.ts
-import { existsSync as existsSync14, readFileSync as readFileSync13, writeFileSync as writeFileSync11 } from "fs";
-import * as path14 from "path";
+import { existsSync as existsSync15, readFileSync as readFileSync14, writeFileSync as writeFileSync12 } from "fs";
+import * as path15 from "path";
 var isTTY2 = process.stdout.isTTY;
 var c = {
   green: (s) => isTTY2 ? `\x1B[32m${s}\x1B[0m` : s,
@@ -2765,15 +2968,15 @@ function stripAnsi(str) {
   return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 function popLastTransition(projectRoot) {
-  const logPath = path14.join(getDevflowDir(projectRoot), "transitions.log");
-  const ackPath = path14.join(getDevflowDir(projectRoot), "transitions.ack");
-  if (!existsSync14(logPath)) return null;
-  const lines = readFileSync13(logPath, "utf-8").trim().split("\n").filter(Boolean);
+  const logPath = path15.join(getDevflowDir(projectRoot), "transitions.log");
+  const ackPath = path15.join(getDevflowDir(projectRoot), "transitions.ack");
+  if (!existsSync15(logPath)) return null;
+  const lines = readFileSync14(logPath, "utf-8").trim().split("\n").filter(Boolean);
   if (lines.length === 0) return null;
   const lastLine = lines[lines.length - 1];
-  const lastAck = existsSync14(ackPath) ? readFileSync13(ackPath, "utf-8").trim() : "";
+  const lastAck = existsSync15(ackPath) ? readFileSync14(ackPath, "utf-8").trim() : "";
   if (lastAck === lastLine) return null;
-  writeFileSync11(ackPath, lastLine, "utf-8");
+  writeFileSync12(ackPath, lastLine, "utf-8");
   return lastLine;
 }
 
@@ -2879,29 +3082,29 @@ Sesi\xF3n cerrada
 }
 
 // src/types/credentials.ts
-import { z as z10 } from "zod";
-import { existsSync as existsSync15, readFileSync as readFileSync14, writeFileSync as writeFileSync12, chmodSync } from "fs";
-import * as path15 from "path";
-import * as yaml8 from "js-yaml";
-var GitHostSchema = z10.enum(["gitlab", "github", "bitbucket", "azure"]);
-var ClientCredentialsSchema = z10.object({
-  git_token: z10.string().min(1),
+import { z as z11 } from "zod";
+import { existsSync as existsSync16, readFileSync as readFileSync15, writeFileSync as writeFileSync13, chmodSync } from "fs";
+import * as path16 from "path";
+import * as yaml9 from "js-yaml";
+var GitHostSchema = z11.enum(["gitlab", "github", "bitbucket", "azure"]);
+var ClientCredentialsSchema = z11.object({
+  git_token: z11.string().min(1),
   git_host: GitHostSchema.default("gitlab"),
-  git_base_url: z10.string().url().default("https://gitlab.com"),
-  git_group: z10.string().min(1)
+  git_base_url: z11.string().url().default("https://gitlab.com"),
+  git_group: z11.string().min(1)
   // grupo/org a escanear
 });
-var CredentialsFileSchema = z10.object({
-  clients: z10.record(z10.string(), ClientCredentialsSchema).default({})
+var CredentialsFileSchema = z11.object({
+  clients: z11.record(z11.string(), ClientCredentialsSchema).default({})
 });
 function getCredentialsPath() {
-  return path15.join(getDevflowGlobalDir(), "credentials.yml");
+  return path16.join(getDevflowGlobalDir(), "credentials.yml");
 }
 function loadCredentials() {
   const p = getCredentialsPath();
-  if (!existsSync15(p)) return { clients: {} };
-  const raw = readFileSync14(p, "utf-8");
-  const parsed = yaml8.load(raw);
+  if (!existsSync16(p)) return { clients: {} };
+  const raw = readFileSync15(p, "utf-8");
+  const parsed = yaml9.load(raw);
   const result = CredentialsFileSchema.safeParse(parsed ?? {});
   if (!result.success) throw new Error(`credentials.yml inv\xE1lido:
 ${result.error.message}`);
@@ -2910,8 +3113,8 @@ ${result.error.message}`);
 function saveCredentials(creds) {
   const p = getCredentialsPath();
   const validated = CredentialsFileSchema.parse(creds);
-  const yamlStr = yaml8.dump(validated, { indent: 2 });
-  writeFileSync12(p, yamlStr, { encoding: "utf-8", mode: 384 });
+  const yamlStr = yaml9.dump(validated, { indent: 2 });
+  writeFileSync13(p, yamlStr, { encoding: "utf-8", mode: 384 });
   try {
     chmodSync(p, 384);
   } catch {
@@ -3019,6 +3222,7 @@ function extractBlockerHint(message) {
 
 // src/commands/start-session-cmd.ts
 import { input, select } from "@inquirer/prompts";
+init_dev_type();
 
 // src/commands/start-session.ts
 function buildStartSessionState(input6, cliVersion, now = () => (/* @__PURE__ */ new Date()).toISOString()) {
@@ -3293,25 +3497,25 @@ function runNext() {
 }
 
 // src/commands/heartbeat.ts
-import { existsSync as existsSync16, appendFileSync as appendFileSync3, mkdirSync as mkdirSync11 } from "fs";
-import * as path16 from "path";
+import { existsSync as existsSync17, appendFileSync as appendFileSync3, mkdirSync as mkdirSync12 } from "fs";
+import * as path17 from "path";
 function log(msg, silent) {
   if (!silent) console.log(msg);
 }
 function safeLog(projectRoot, line) {
   try {
     const dir = getDevflowDir(projectRoot);
-    if (!existsSync16(dir)) mkdirSync11(dir, { recursive: true });
-    appendFileSync3(path16.join(dir, "heartbeat.log"), line + "\n", "utf-8");
+    if (!existsSync17(dir)) mkdirSync12(dir, { recursive: true });
+    appendFileSync3(path17.join(dir, "heartbeat.log"), line + "\n", "utf-8");
   } catch {
   }
 }
 function safeLogTransition(projectRoot, from, to) {
   try {
     const dir = getDevflowDir(projectRoot);
-    if (!existsSync16(dir)) mkdirSync11(dir, { recursive: true });
+    if (!existsSync17(dir)) mkdirSync12(dir, { recursive: true });
     const line = `${(/* @__PURE__ */ new Date()).toISOString()}  flow_state: ${from} \u2192 ${to}`;
-    appendFileSync3(path16.join(dir, "transitions.log"), line + "\n", "utf-8");
+    appendFileSync3(path17.join(dir, "transitions.log"), line + "\n", "utf-8");
   } catch {
   }
 }
@@ -3409,11 +3613,11 @@ async function runHeartbeat(opts = {}) {
 }
 
 // src/commands/skills-cmd.ts
-import { existsSync as existsSync17, readdirSync as readdirSync3, statSync as statSync5, readFileSync as readFileSync15 } from "fs";
+import { existsSync as existsSync18, readdirSync as readdirSync4, statSync as statSync5, readFileSync as readFileSync16 } from "fs";
 import { createHash as createHash3 } from "crypto";
-import * as path17 from "path";
+import * as path18 from "path";
 import { fileURLToPath as fileURLToPath3 } from "url";
-var __dirname = path17.dirname(fileURLToPath3(import.meta.url));
+var __dirname = path18.dirname(fileURLToPath3(import.meta.url));
 var META_FILES2 = /* @__PURE__ */ new Set([
   "AUDIT.md",
   "CUSTOMIZATION.md",
@@ -3432,22 +3636,22 @@ function parseFrontmatter(content) {
   return fm;
 }
 function sha256File(filePath) {
-  const content = readFileSync15(filePath);
+  const content = readFileSync16(filePath);
   return createHash3("sha256").update(content).digest("hex");
 }
 function collectSkills(dir, relBase = "") {
   const skills2 = [];
-  if (!existsSync17(dir)) return skills2;
-  for (const entry of readdirSync3(dir)) {
-    const fullPath = path17.join(dir, entry);
+  if (!existsSync18(dir)) return skills2;
+  for (const entry of readdirSync4(dir)) {
+    const fullPath = path18.join(dir, entry);
     const st = statSync5(fullPath);
     if (st.isDirectory()) {
-      skills2.push(...collectSkills(fullPath, path17.join(relBase, entry)));
+      skills2.push(...collectSkills(fullPath, path18.join(relBase, entry)));
     } else if (entry.endsWith(".md") && !META_FILES2.has(entry)) {
-      const content = readFileSync15(fullPath, "utf-8");
+      const content = readFileSync16(fullPath, "utf-8");
       const fm = parseFrontmatter(content);
       skills2.push({
-        relPath: path17.join(relBase, entry),
+        relPath: path18.join(relBase, entry),
         name: fm["name"] ?? entry.replace(".md", ""),
         category: fm["category"] ?? "?",
         model: fm["model"] ?? "?",
@@ -3459,28 +3663,28 @@ function collectSkills(dir, relBase = "") {
   return skills2;
 }
 function resolveChecksumsPath() {
-  const pkgRoot = path17.resolve(__dirname, "..", "..");
-  const candidate = path17.join(pkgRoot, "skills.checksums");
-  return existsSync17(candidate) ? candidate : null;
+  const pkgRoot = path18.resolve(__dirname, "..", "..");
+  const candidate = path18.join(pkgRoot, "skills.checksums");
+  return existsSync18(candidate) ? candidate : null;
 }
 function loadChecksums() {
   const p = resolveChecksumsPath();
   if (!p) return {};
   try {
-    return JSON.parse(readFileSync15(p, "utf-8"));
+    return JSON.parse(readFileSync16(p, "utf-8"));
   } catch {
     return {};
   }
 }
 function runSkillsList() {
   const skillsDir = getClaudeSkillsDir();
-  if (!existsSync17(skillsDir)) {
+  if (!existsSync18(skillsDir)) {
     printWarn(`Skills no instaladas en ${skillsDir}`);
     printDim(`  Ejecuta: dd-cli init`);
     return 1;
   }
-  const versionFile = path17.join(skillsDir, ".version");
-  const version = existsSync17(versionFile) ? readFileSync15(versionFile, "utf-8").trim() : "?";
+  const versionFile = path18.join(skillsDir, ".version");
+  const version = existsSync18(versionFile) ? readFileSync16(versionFile, "utf-8").trim() : "?";
   const skills2 = collectSkills(skillsDir);
   console.log(`
 Skills instaladas en ${skillsDir} (v${version})
@@ -3519,7 +3723,7 @@ function runSkillsVerify() {
       printWarn(`${s.relPath}: no est\xE1 en checksums (skill nueva?)`);
       continue;
     }
-    const actual = sha256File(path17.join(skillsDir, s.relPath));
+    const actual = sha256File(path18.join(skillsDir, s.relPath));
     if (actual === expected) {
       ok2++;
     } else {
@@ -3632,7 +3836,7 @@ ${bold3(`Est\xE1s en: ${stageName}`)} ${dim3(`(paso ${ctx?.currentIndex ?? "?"}/
 
 // src/commands/reclassify-cmd.ts
 import { appendFileSync as appendFileSync4 } from "fs";
-import * as path18 from "path";
+import * as path19 from "path";
 
 // src/commands/reclassify.ts
 var MIN_REASON_CHARS = 30;
@@ -3694,6 +3898,7 @@ function reclassify(input6) {
 }
 
 // src/commands/reclassify-cmd.ts
+init_dev_type();
 var isTTY5 = process.stdout.isTTY;
 var dim4 = (s) => isTTY5 ? `\x1B[90m${s}\x1B[0m` : s;
 var orange = (s) => isTTY5 ? `\x1B[38;5;208m${s}\x1B[0m` : s;
@@ -3743,7 +3948,7 @@ function runReclassifyCmd(opts) {
   saveSession(projectRoot, updated);
   const auditLine = `${(/* @__PURE__ */ new Date()).toISOString()}  HDU ${session.feature_id}  ${session.dev_type} \u2192 ${updated.dev_type}  reason: ${opts.reason}`;
   try {
-    appendFileSync4(path18.join(getDevflowDir(projectRoot), "audit.log"), auditLine + "\n", "utf-8");
+    appendFileSync4(path19.join(getDevflowDir(projectRoot), "audit.log"), auditLine + "\n", "utf-8");
   } catch {
   }
   console.log("");
@@ -3760,9 +3965,9 @@ function runReclassifyCmd(opts) {
 
 // src/commands/register-client.ts
 import { execSync } from "child_process";
-import { existsSync as existsSync19, mkdirSync as mkdirSync12, readFileSync as readFileSync17, rmSync as rmSync2 } from "fs";
-import * as path19 from "path";
-import * as yaml9 from "js-yaml";
+import { existsSync as existsSync20, mkdirSync as mkdirSync13, readFileSync as readFileSync18, rmSync as rmSync2 } from "fs";
+import * as path20 from "path";
+import * as yaml10 from "js-yaml";
 function runGit(cmd, cwd) {
   try {
     return execSync(cmd, {
@@ -3780,20 +3985,20 @@ function deriveNameFromUrl(url) {
   return base.replace(/-devflow-context$/, "");
 }
 function readClientName(cacheDir, contextUrl) {
-  const stackYmlPath = path19.join(cacheDir, ".devflow-context", "stack.yml");
-  if (existsSync19(stackYmlPath)) {
+  const stackYmlPath = path20.join(cacheDir, ".devflow-context", "stack.yml");
+  if (existsSync20(stackYmlPath)) {
     try {
-      const parsed = yaml9.load(readFileSync17(stackYmlPath, "utf-8"));
+      const parsed = yaml10.load(readFileSync18(stackYmlPath, "utf-8"));
       const client = parsed?.client;
       const name = client?.name;
       if (typeof name === "string" && name.trim()) return name.trim();
     } catch {
     }
   }
-  const contextRepoYmlPath = path19.join(cacheDir, ".devflow-context", ".context-repo.yml");
-  if (existsSync19(contextRepoYmlPath)) {
+  const contextRepoYmlPath = path20.join(cacheDir, ".devflow-context", ".context-repo.yml");
+  if (existsSync20(contextRepoYmlPath)) {
     try {
-      const parsed = yaml9.load(readFileSync17(contextRepoYmlPath, "utf-8"));
+      const parsed = yaml10.load(readFileSync18(contextRepoYmlPath, "utf-8"));
       const client = parsed?.client;
       const name = client?.name;
       if (typeof name === "string" && name.trim()) return name.trim();
@@ -3801,10 +4006,10 @@ function readClientName(cacheDir, contextUrl) {
     }
   }
   for (const filename of ["CLAUDE.md", "README.md"]) {
-    const mdPath = path19.join(cacheDir, filename);
-    if (existsSync19(mdPath)) {
+    const mdPath = path20.join(cacheDir, filename);
+    if (existsSync20(mdPath)) {
       try {
-        const content = readFileSync17(mdPath, "utf-8");
+        const content = readFileSync18(mdPath, "utf-8");
         const h1 = content.match(/^#\s+(.+?)\s*$/m);
         if (h1 && h1[1]?.trim()) return h1[1].trim();
       } catch {
@@ -3828,13 +4033,13 @@ Registrando cliente: ${slug}
     printInfo(`El cliente "${slug}" ya est\xE1 registrado. Actualizando cache...`);
     return syncClient(slug, cacheDir, opts.contextUrl);
   }
-  const parentDir = path19.dirname(cacheDir);
-  if (!existsSync19(parentDir)) mkdirSync12(parentDir, { recursive: true });
-  if (existsSync19(cacheDir) && opts.force) {
+  const parentDir = path20.dirname(cacheDir);
+  if (!existsSync20(parentDir)) mkdirSync13(parentDir, { recursive: true });
+  if (existsSync20(cacheDir) && opts.force) {
     printDim(`  Sobreescribiendo cache existente en ${cacheDir}`);
     rmSync2(cacheDir, { recursive: true, force: true });
   }
-  if (!existsSync19(cacheDir)) {
+  if (!existsSync20(cacheDir)) {
     printInfo(`Clonando repo de contexto...`);
     printDim(`  ${opts.contextUrl}`);
     printDim(`  \u2192 ${cacheDir}`);
@@ -3888,11 +4093,11 @@ Registrando cliente: ${slug}
   return 0;
 }
 function syncClient(slug, cacheDir, contextUrl) {
-  if (!existsSync19(cacheDir)) {
+  if (!existsSync20(cacheDir)) {
     printWarn(`Cache local no encontrada. Clonando de nuevo...`);
     try {
-      const parentDir = path19.dirname(cacheDir);
-      if (!existsSync19(parentDir)) mkdirSync12(parentDir, { recursive: true });
+      const parentDir = path20.dirname(cacheDir);
+      if (!existsSync20(parentDir)) mkdirSync13(parentDir, { recursive: true });
       runGit(`git clone "${contextUrl}" "${cacheDir}"`);
     } catch (e) {
       printErr(`Error al clonar: ${e instanceof Error ? e.message : String(e)}`);
@@ -3921,10 +4126,11 @@ function syncClient(slug, cacheDir, contextUrl) {
 }
 
 // src/commands/init-client.ts
-import { existsSync as existsSync20, mkdirSync as mkdirSync13 } from "fs";
-import * as path20 from "path";
+import { existsSync as existsSync21, mkdirSync as mkdirSync14 } from "fs";
+import * as path21 from "path";
 import { execSync as execSync2 } from "child_process";
 import { select as select2, input as input2, confirm } from "@inquirer/prompts";
+init_dev_type();
 var isTTY6 = process.stdout.isTTY;
 function toEntry(app) {
   return {
@@ -3939,8 +4145,8 @@ function toEntry(app) {
 function syncCache(slug, contextUrl) {
   const cacheDir = getClientCacheDir(slug);
   try {
-    if (!existsSync20(cacheDir)) {
-      mkdirSync13(path20.dirname(cacheDir), { recursive: true });
+    if (!existsSync21(cacheDir)) {
+      mkdirSync14(path21.dirname(cacheDir), { recursive: true });
       execSync2(`git clone "${contextUrl}" "${cacheDir}"`, { stdio: "pipe" });
     } else {
       execSync2("git pull", { cwd: cacheDir, stdio: "pipe" });
@@ -4023,7 +4229,7 @@ Conectando repo al cliente: ${clientSlug}
     printInfo("Registrando nueva app en el contexto del cliente:");
     appSlug = await input2({
       message: "Slug de la app (kebab-case):",
-      default: path20.basename(projectRoot),
+      default: path21.basename(projectRoot),
       validate: (v) => /^[a-z0-9-]+$/.test(v) || "Debe ser kebab-case (solo min\xFAsculas, n\xFAmeros y guiones)"
     });
     appType = await select2({
@@ -4085,8 +4291,8 @@ Conectando repo al cliente: ${clientSlug}
 
 // src/commands/pull-context.ts
 import { execSync as execSync3 } from "child_process";
-import { existsSync as existsSync21, mkdirSync as mkdirSync14 } from "fs";
-import * as path21 from "path";
+import { existsSync as existsSync22, mkdirSync as mkdirSync15 } from "fs";
+import * as path22 from "path";
 function runGit2(cmd, cwd) {
   return execSync3(cmd, {
     cwd,
@@ -4158,10 +4364,10 @@ Actualizando contexto del cliente: ${slug}
     printDim(`  Fuente: ${context_url}`);
     console.log("");
   }
-  if (!existsSync21(cacheDir)) {
+  if (!existsSync22(cacheDir)) {
     if (!jsonMode) printInfo("Cache local no encontrada. Clonando...");
     try {
-      mkdirSync14(path21.dirname(cacheDir), { recursive: true });
+      mkdirSync15(path22.dirname(cacheDir), { recursive: true });
       execSync3(`git clone "${context_url}" "${cacheDir}"`, { stdio: "pipe" });
       updateLastSynced(slug);
       recordCommandResult(slug, "pull-context", { success: true });
@@ -4280,7 +4486,7 @@ Actualizando contexto del cliente: ${slug}
 }
 
 // src/commands/doctor-cmd.ts
-import { existsSync as existsSync22 } from "fs";
+import { existsSync as existsSync23 } from "fs";
 
 // src/commands/doctor.ts
 function doctor({ projectRoot, session, forType }) {
@@ -4301,6 +4507,7 @@ function doctor({ projectRoot, session, forType }) {
 }
 
 // src/commands/doctor-cmd.ts
+init_dev_type();
 var isTTY7 = process.stdout.isTTY;
 var dim5 = (s) => isTTY7 ? `\x1B[90m${s}\x1B[0m` : s;
 var green = (s) => isTTY7 ? `\x1B[32m${s}\x1B[0m` : s;
@@ -4317,14 +4524,14 @@ ${bold("Diagn\xF3stico del entorno DevFlow IA")}
     printDim(`  Instala Claude Code: https://claude.com/claude-code`);
   }
   const skillsDir = getClaudeSkillsDir();
-  if (existsSync22(skillsDir)) {
+  if (existsSync23(skillsDir)) {
     printOk(`Skills instaladas en ${skillsDir}`);
   } else {
     printWarn(`Skills no instaladas`);
     printDim(`  Ejecuta: dd-cli init`);
   }
   const settingsPath = `${projectRoot}/.claude/settings.json`;
-  if (existsSync22(settingsPath)) {
+  if (existsSync23(settingsPath)) {
     printOk(`.claude/settings.json con hooks presente`);
   } else {
     printWarn(`.claude/settings.json no encontrado`);
@@ -4429,8 +4636,8 @@ function humanizeRuleId(technicalMsg) {
 }
 
 // src/commands/watch.ts
-import { existsSync as existsSync23, readFileSync as readFileSync18, readdirSync as readdirSync4, statSync as statSync6 } from "fs";
-import * as path22 from "path";
+import { existsSync as existsSync24, readFileSync as readFileSync19, readdirSync as readdirSync5, statSync as statSync6 } from "fs";
+import * as path23 from "path";
 var isTTY8 = process.stdout.isTTY;
 var c2 = {
   reset: "\x1B[0m",
@@ -4454,10 +4661,10 @@ function progressBar(done, total, width = 12) {
 }
 function activeChangeName(projectRoot) {
   try {
-    const changes = path22.join(projectRoot, "openspec", "changes");
-    if (!existsSync23(changes)) return null;
-    const entries = readdirSync4(changes).filter((e) => {
-      return statSync6(path22.join(changes, e)).isDirectory() && existsSync23(path22.join(changes, e, "tasks.md"));
+    const changes = path23.join(projectRoot, "openspec", "changes");
+    if (!existsSync24(changes)) return null;
+    const entries = readdirSync5(changes).filter((e) => {
+      return statSync6(path23.join(changes, e)).isDirectory() && existsSync24(path23.join(changes, e, "tasks.md"));
     });
     return entries[0] ?? null;
   } catch {
@@ -4466,7 +4673,7 @@ function activeChangeName(projectRoot) {
 }
 function countTasks(projectRoot, changeName) {
   try {
-    const content = readFileSync18(path22.join(projectRoot, "openspec", "changes", changeName, "tasks.md"), "utf-8");
+    const content = readFileSync19(path23.join(projectRoot, "openspec", "changes", changeName, "tasks.md"), "utf-8");
     const total = (content.match(/^- \[[ x]\]/gm) ?? []).length;
     const done = (content.match(/^- \[x\]/gm) ?? []).length;
     return { done, total };
@@ -4577,14 +4784,14 @@ async function runWatch(opts = {}) {
 }
 
 // src/commands/install-cmd.ts
-import { existsSync as existsSync24, mkdirSync as mkdirSync15, readFileSync as readFileSync19, writeFileSync as writeFileSync13 } from "fs";
-import * as path23 from "path";
+import { existsSync as existsSync25, mkdirSync as mkdirSync16, readFileSync as readFileSync20, writeFileSync as writeFileSync14 } from "fs";
+import * as path24 from "path";
 var STATUSLINE_COMMAND = "dd-cli statusline";
 function readGlobalSettings() {
   const settingsPath = getClaudeGlobalSettingsPath();
-  if (!existsSync24(settingsPath)) return {};
+  if (!existsSync25(settingsPath)) return {};
   try {
-    return JSON.parse(readFileSync19(settingsPath, "utf-8"));
+    return JSON.parse(readFileSync20(settingsPath, "utf-8"));
   } catch {
     throw new Error(
       `${settingsPath} existe pero no es JSON v\xE1lido. Corr\xEDgelo manualmente o usa --force.`
@@ -4593,9 +4800,9 @@ function readGlobalSettings() {
 }
 function writeGlobalSettings(settings) {
   const settingsPath = getClaudeGlobalSettingsPath();
-  const dir = path23.dirname(settingsPath);
-  if (!existsSync24(dir)) mkdirSync15(dir, { recursive: true });
-  writeFileSync13(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  const dir = path24.dirname(settingsPath);
+  if (!existsSync25(dir)) mkdirSync16(dir, { recursive: true });
+  writeFileSync14(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
 }
 async function runInstall(opts = {}) {
   console.log(bold("\nDevFlow IA \u2014 install (global)\n"));
@@ -4643,7 +4850,7 @@ async function runInstall(opts = {}) {
 }
 async function runUninstall() {
   console.log(bold("\nDevFlow IA \u2014 uninstall (global)\n"));
-  if (!existsSync24(getClaudeGlobalSettingsPath())) {
+  if (!existsSync25(getClaudeGlobalSettingsPath())) {
     printInfo("No hay settings.json global; nada que desinstalar.");
     return 0;
   }
@@ -4668,6 +4875,7 @@ async function runUninstall() {
 }
 
 // src/commands/flow-cmd.ts
+init_dev_type();
 var STAGE_GROUPS = [
   { label: "CAPTURA & DISE\xD1O", matches: (s) => s.id === "start-session" },
   { label: "MAPEO DEL REPO", matches: (s) => s.id === "/init-repo-context" || s.id === "/map-service" || s.id === "/trace-flow" || s.id === "/capture-baseline" },
@@ -4796,29 +5004,29 @@ function runFlow(opts = {}) {
 
 // src/commands/new-hdu-cmd.ts
 import { execSync as execSync4, spawn } from "child_process";
-import { existsSync as existsSync26, mkdirSync as mkdirSync16, readdirSync as readdirSync5, writeFileSync as writeFileSync14 } from "fs";
-import * as path25 from "path";
+import { existsSync as existsSync27, mkdirSync as mkdirSync17, readdirSync as readdirSync6, writeFileSync as writeFileSync15 } from "fs";
+import * as path26 from "path";
 
 // src/utils/templates.ts
-import { existsSync as existsSync25, readFileSync as readFileSync20 } from "fs";
-import * as path24 from "path";
+import { existsSync as existsSync26, readFileSync as readFileSync21 } from "fs";
+import * as path25 from "path";
 import { fileURLToPath as fileURLToPath4 } from "url";
 function resolveTemplatesDir() {
-  const here = path24.dirname(fileURLToPath4(import.meta.url));
-  const bundled = path24.resolve(here, "..", "..", "templates");
-  if (existsSync25(bundled)) return bundled;
-  const monorepo = path24.resolve(here, "..", "..", "..", "templates");
-  if (existsSync25(monorepo)) return monorepo;
+  const here = path25.dirname(fileURLToPath4(import.meta.url));
+  const bundled = path25.resolve(here, "..", "..", "templates");
+  if (existsSync26(bundled)) return bundled;
+  const monorepo = path25.resolve(here, "..", "..", "..", "templates");
+  if (existsSync26(monorepo)) return monorepo;
   return null;
 }
 function getTemplatePath(name) {
   const dir = resolveTemplatesDir();
   if (!dir) return null;
-  const full = path24.join(dir, name);
-  return existsSync25(full) ? full : null;
+  const full = path25.join(dir, name);
+  return existsSync26(full) ? full : null;
 }
 function renderTemplate(templatePath, vars) {
-  let content = readFileSync20(templatePath, "utf-8");
+  let content = readFileSync21(templatePath, "utf-8");
   for (const [key, value] of Object.entries(vars)) {
     content = content.replaceAll(`{{${key}}}`, value);
   }
@@ -4826,7 +5034,7 @@ function renderTemplate(templatePath, vars) {
 }
 
 // src/commands/new-hdu-cmd.ts
-var HDU_DIR = path25.join("docs", "hdus");
+var HDU_DIR = path26.join("docs", "hdus");
 function slugify(title) {
   return title.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "").slice(0, 60);
 }
@@ -4834,8 +5042,8 @@ function pad(n) {
   return n.toString().padStart(3, "0");
 }
 function nextHduId(hduDir) {
-  if (!existsSync26(hduDir)) return "001";
-  const entries = readdirSync5(hduDir).filter((f) => f.endsWith(".md"));
+  if (!existsSync27(hduDir)) return "001";
+  const entries = readdirSync6(hduDir).filter((f) => f.endsWith(".md"));
   let max = 0;
   for (const entry of entries) {
     const match = entry.match(/^HDU-(\d+)/);
@@ -4892,13 +5100,13 @@ async function runNewHdu(title, opts = {}) {
     printInfo("Ejecuta primero: dd-cli init  (o dd-cli init --client=<slug>)");
     return 2;
   }
-  const hduDir = path25.join(projectRoot, HDU_DIR);
-  if (!existsSync26(hduDir)) mkdirSync16(hduDir, { recursive: true });
+  const hduDir = path26.join(projectRoot, HDU_DIR);
+  if (!existsSync27(hduDir)) mkdirSync17(hduDir, { recursive: true });
   const id = nextHduId(hduDir);
   const slug = slugify(title.trim());
   const fileName = `HDU-${id}-${slug}.md`;
-  const hduPath = path25.join(hduDir, fileName);
-  const hduPathRel = path25.relative(projectRoot, hduPath);
+  const hduPath = path26.join(hduDir, fileName);
+  const hduPathRel = path26.relative(projectRoot, hduPath);
   const templatePath = getTemplatePath("HDU.md.template");
   if (!templatePath) {
     printErr("No encontr\xE9 HDU.md.template en el paquete.");
@@ -4912,11 +5120,11 @@ async function runNewHdu(title, opts = {}) {
     DATE: today,
     USER: getGitUser(projectRoot)
   });
-  if (existsSync26(hduPath)) {
+  if (existsSync27(hduPath)) {
     printErr(`Ya existe ${hduPathRel}. Cambia el t\xEDtulo o borra el archivo.`);
     return 1;
   }
-  writeFileSync14(hduPath, content, "utf-8");
+  writeFileSync15(hduPath, content, "utf-8");
   console.log(bold(`
 DevFlow IA \u2014 nueva HDU
 `));
@@ -4939,8 +5147,8 @@ DevFlow IA \u2014 nueva HDU
 }
 
 // src/commands/health-cmd.ts
-import { existsSync as existsSync27, readFileSync as readFileSync21, readdirSync as readdirSync6, statSync as statSync7 } from "fs";
-import * as path26 from "path";
+import { existsSync as existsSync28, readFileSync as readFileSync22, readdirSync as readdirSync7, statSync as statSync7 } from "fs";
+import * as path27 from "path";
 function check(label, status, detail) {
   const icons = { ok: ok("\u2713"), warn: warn("\u26A0"), err: err("\u2717"), skip: dim("\xB7") };
   const icon = icons[status];
@@ -4963,10 +5171,10 @@ function formatAge(isoDate) {
   return `hace ${days}d`;
 }
 function countSkills(dir) {
-  if (!existsSync27(dir)) return 0;
+  if (!existsSync28(dir)) return 0;
   let count = 0;
-  for (const entry of readdirSync6(dir)) {
-    const full = path26.join(dir, entry);
+  for (const entry of readdirSync7(dir)) {
+    const full = path27.join(dir, entry);
     try {
       const stat = statSync7(full);
       if (stat.isDirectory()) {
@@ -4981,14 +5189,14 @@ function countSkills(dir) {
 }
 function checkSkills() {
   const skillsDir = getClaudeSkillsDir();
-  if (!existsSync27(skillsDir)) {
+  if (!existsSync28(skillsDir)) {
     return { status: "err", detail: `no instaladas \u2014 ejecuta: dd-cli init o dd-cli skills install` };
   }
-  const versionFile = path26.join(skillsDir, ".version");
-  if (!existsSync27(versionFile)) {
+  const versionFile = path27.join(skillsDir, ".version");
+  if (!existsSync28(versionFile)) {
     return { status: "warn", detail: `instaladas, sin versi\xF3n registrada` };
   }
-  const installed = readFileSync21(versionFile, "utf-8").trim();
+  const installed = readFileSync22(versionFile, "utf-8").trim();
   if (installed !== CLI_VERSION) {
     return { status: "warn", detail: `v${installed} instalada, v${CLI_VERSION} disponible \u2014 ejecuta: dd-cli skills install` };
   }
@@ -4997,11 +5205,11 @@ function checkSkills() {
 }
 function checkStatusline() {
   const settingsPath = getClaudeGlobalSettingsPath();
-  if (!existsSync27(settingsPath)) {
+  if (!existsSync28(settingsPath)) {
     return { status: "warn", detail: `no configurada \u2014 ejecuta: dd-cli install` };
   }
   try {
-    const settings = JSON.parse(readFileSync21(settingsPath, "utf-8"));
+    const settings = JSON.parse(readFileSync22(settingsPath, "utf-8"));
     const sl = settings.statusLine;
     if (sl?.type === "command" && sl.command === "dd-cli statusline") {
       return { status: "ok", detail: `activa en ${settingsPath}` };
@@ -5020,7 +5228,7 @@ function checkClient(slug) {
   if (!entry) {
     return { slug, status: "err", issues: ["no registrado \u2014 ejecuta: dd-cli register-client"], details };
   }
-  if (!existsSync27(entry.local_cache)) {
+  if (!existsSync28(entry.local_cache)) {
     issues.push(`contexto no clonado en ${entry.local_cache}`);
   } else {
     details["contexto"] = entry.local_cache;
@@ -5178,9 +5386,9 @@ async function runHealth(opts = {}) {
 
 // src/commands/client-migrate.ts
 import { execSync as execSync5 } from "child_process";
-import { existsSync as existsSync28, readFileSync as readFileSync22, cpSync } from "fs";
-import * as path27 from "path";
-import * as yaml10 from "js-yaml";
+import { existsSync as existsSync29, readFileSync as readFileSync23, cpSync } from "fs";
+import * as path28 from "path";
+import * as yaml11 from "js-yaml";
 function runGit3(cmd, cwd) {
   return execSync5(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
 }
@@ -5229,12 +5437,12 @@ function buildStackFromLegacyMaster(slug, legacy) {
 }
 function planMigration(cacheDir, slug) {
   const steps = [];
-  const legacyMasterPath = path27.join(cacheDir, ".devflow", "config.yml");
+  const legacyMasterPath = path28.join(cacheDir, ".devflow", "config.yml");
   const stackYmlExists = hasStackConfig(cacheDir);
-  if (!stackYmlExists && existsSync28(legacyMasterPath)) {
+  if (!stackYmlExists && existsSync29(legacyMasterPath)) {
     try {
-      const raw = readFileSync22(legacyMasterPath, "utf-8");
-      const parsed = yaml10.load(raw);
+      const raw = readFileSync23(legacyMasterPath, "utf-8");
+      const parsed = yaml11.load(raw);
       if (looksLikeLegacyMasterConfig(parsed)) {
         const next = buildStackFromLegacyMaster(slug, parsed);
         StackConfigSchema.parse(next);
@@ -5252,8 +5460,8 @@ function planMigration(cacheDir, slug) {
       });
     }
   }
-  const catalogYmlExists = existsSync28(getCatalogYamlPath(cacheDir));
-  const catalogMdExists = existsSync28(getCatalogMarkdownPath(cacheDir));
+  const catalogYmlExists = existsSync29(getCatalogYamlPath(cacheDir));
+  const catalogMdExists = existsSync29(getCatalogMarkdownPath(cacheDir));
   if (!catalogYmlExists && catalogMdExists) {
     try {
       const catalog = loadCatalog(cacheDir);
@@ -5278,7 +5486,7 @@ function planMigration(cacheDir, slug) {
         type: "noop-already-migrated",
         description: "El cliente ya usa el schema nuevo \u2014 nada que migrar"
       });
-    } else if (!hasCatalog(cacheDir) && !existsSync28(legacyMasterPath)) {
+    } else if (!hasCatalog(cacheDir) && !existsSync29(legacyMasterPath)) {
       steps.push({
         type: "noop-nothing-to-migrate",
         description: "Context repo vac\xEDo o incompleto \u2014 corr\xE9 /devflow-ia:init-context primero"
@@ -5290,8 +5498,8 @@ function planMigration(cacheDir, slug) {
 function applyMigration(cacheDir, slug, steps) {
   for (const step of steps) {
     if (step.type === "create-stack-yml-from-legacy-config") {
-      const raw = readFileSync22(path27.join(cacheDir, ".devflow", "config.yml"), "utf-8");
-      const parsed = yaml10.load(raw);
+      const raw = readFileSync23(path28.join(cacheDir, ".devflow", "config.yml"), "utf-8");
+      const parsed = yaml11.load(raw);
       const next = buildStackFromLegacyMaster(slug, parsed);
       const config = StackConfigSchema.parse(next);
       saveStackConfig(cacheDir, config, {
@@ -5310,7 +5518,7 @@ function applyMigration(cacheDir, slug, steps) {
 }
 function makeBackup(cacheDir, slug) {
   const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-  const backupDir = `${path27.dirname(cacheDir)}/${slug}.bak-${ts}`;
+  const backupDir = `${path28.dirname(cacheDir)}/${slug}.bak-${ts}`;
   cpSync(cacheDir, backupDir, { recursive: true });
   return backupDir;
 }
@@ -5374,7 +5582,7 @@ async function runClientMigrate(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync28(cacheDir)) {
+  if (!existsSync29(cacheDir)) {
     const err2 = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada en ${cacheDir}.`,
@@ -5456,8 +5664,8 @@ Plan de migraci\xF3n para ${slug}
 }
 
 // src/commands/client-discover.ts
-import { mkdirSync as mkdirSync18, writeFileSync as writeFileSync16 } from "fs";
-import * as path28 from "path";
+import { mkdirSync as mkdirSync19, writeFileSync as writeFileSync17 } from "fs";
+import * as path29 from "path";
 import ora from "ora";
 
 // src/discovery/pattern-detector.ts
@@ -5684,8 +5892,8 @@ async function readKeyFiles(provider, repoIdOrSlug, branch, concurrency) {
   return result;
 }
 function getDiscoveryPath(slug, override) {
-  if (override) return path28.resolve(override);
-  return path28.join(getDevflowGlobalDir(), "clients", `${slug}.discovery.json`);
+  if (override) return path29.resolve(override);
+  return path29.join(getDevflowGlobalDir(), "clients", `${slug}.discovery.json`);
 }
 async function runClientDiscover(slug, opts = {}) {
   const jsonMode = isJsonMode(opts);
@@ -5773,8 +5981,8 @@ async function runClientDiscover(slug, opts = {}) {
       discovery,
       saved_to: outPath
     };
-    mkdirSync18(path28.dirname(outPath), { recursive: true });
-    writeFileSync16(outPath, JSON.stringify(output, null, 2) + "\n", "utf-8");
+    mkdirSync19(path29.dirname(outPath), { recursive: true });
+    writeFileSync17(outPath, JSON.stringify(output, null, 2) + "\n", "utf-8");
     recordCommandResult(slug, "client discover", {
       success: true,
       state: "DISCOVERED",
@@ -5839,20 +6047,20 @@ function dimLine(s) {
 }
 
 // src/commands/context-validate.ts
-import { existsSync as existsSync29, readdirSync as readdirSync7, readFileSync as readFileSync23 } from "fs";
-import * as path29 from "path";
+import { existsSync as existsSync30, readdirSync as readdirSync8, readFileSync as readFileSync24 } from "fs";
+import * as path30 from "path";
 function authProfilesAvailable(repoRoot) {
-  const dir = path29.join(repoRoot, ".devflow-context", "auth-profiles");
-  if (!existsSync29(dir)) return /* @__PURE__ */ new Set();
+  const dir = path30.join(repoRoot, ".devflow-context", "auth-profiles");
+  if (!existsSync30(dir)) return /* @__PURE__ */ new Set();
   return new Set(
-    readdirSync7(dir).filter((f) => f.endsWith(".md") || f.endsWith(".yml")).map((f) => f.replace(/\.(md|yml)$/, ""))
+    readdirSync8(dir).filter((f) => f.endsWith(".md") || f.endsWith(".yml")).map((f) => f.replace(/\.(md|yml)$/, ""))
   );
 }
 function cicdProfilesAvailable(repoRoot) {
-  const dir = path29.join(repoRoot, ".devflow-context", "cicd-profiles");
-  if (!existsSync29(dir)) return /* @__PURE__ */ new Set();
+  const dir = path30.join(repoRoot, ".devflow-context", "cicd-profiles");
+  if (!existsSync30(dir)) return /* @__PURE__ */ new Set();
   return new Set(
-    readdirSync7(dir).filter((f) => f.endsWith(".yml")).map((f) => f.replace(/\.yml$/, ""))
+    readdirSync8(dir).filter((f) => f.endsWith(".yml")).map((f) => f.replace(/\.yml$/, ""))
   );
 }
 function validateContextRepo(repoRoot) {
@@ -5867,7 +6075,7 @@ function validateContextRepo(repoRoot) {
     return findings;
   }
   const markerPath = getContextRepoMarkerPath(repoRoot);
-  if (!existsSync29(markerPath)) {
+  if (!existsSync30(markerPath)) {
     findings.push({
       level: "warn",
       rule: "context-repo-marker",
@@ -5910,7 +6118,7 @@ function validateContextRepo(repoRoot) {
           message: `stack.yml OK \u2014 ${stack.stack.backend_framework} + ${stack.stack.frontend_framework}`
         });
         try {
-          const raw = readFileSync23(getStackConfigPath(repoRoot), "utf-8");
+          const raw = readFileSync24(getStackConfigPath(repoRoot), "utf-8");
           const audited = parseAuditedFile(raw);
           if (audited.header && !audited.matches_checksum) {
             findings.push({
@@ -5949,9 +6157,9 @@ function validateContextRepo(repoRoot) {
         message: `catalog OK \u2014 ${apps.length} apps`
       });
       const catalogYmlPath = getCatalogYamlPath(repoRoot);
-      if (existsSync29(catalogYmlPath)) {
+      if (existsSync30(catalogYmlPath)) {
         try {
-          const raw = readFileSync23(catalogYmlPath, "utf-8");
+          const raw = readFileSync24(catalogYmlPath, "utf-8");
           const audited = parseAuditedFile(raw);
           if (audited.header && !audited.matches_checksum) {
             findings.push({
@@ -5984,7 +6192,7 @@ function validateContextRepo(repoRoot) {
           });
         }
       }
-      if (!existsSync29(getCatalogYamlPath(repoRoot)) && existsSync29(getCatalogMarkdownPath(repoRoot))) {
+      if (!existsSync30(getCatalogYamlPath(repoRoot)) && existsSync30(getCatalogMarkdownPath(repoRoot))) {
         findings.push({
           level: "warn",
           rule: "catalog-format",
@@ -6004,8 +6212,8 @@ function validateContextRepo(repoRoot) {
 }
 async function runContextValidate(repoPathArg, opts = {}) {
   const jsonMode = isJsonMode(opts);
-  const repoRoot = path29.resolve(repoPathArg ?? process.cwd());
-  if (!existsSync29(repoRoot)) {
+  const repoRoot = path30.resolve(repoPathArg ?? process.cwd());
+  if (!existsSync30(repoRoot)) {
     const err2 = {
       code: "INVALID_INPUT",
       message: `El path "${repoRoot}" no existe.`,
@@ -6052,12 +6260,12 @@ async function runContextValidate(repoPathArg, opts = {}) {
 }
 
 // src/commands/context-render.ts
-import { existsSync as existsSync30, readFileSync as readFileSync24, writeFileSync as writeFileSync17 } from "fs";
-import * as path30 from "path";
+import { existsSync as existsSync31, readFileSync as readFileSync25, writeFileSync as writeFileSync18 } from "fs";
+import * as path31 from "path";
 async function runContextRender(repoPathArg, opts = {}) {
   const jsonMode = isJsonMode(opts);
-  const repoRoot = path30.resolve(repoPathArg ?? process.cwd());
-  if (!existsSync30(repoRoot)) {
+  const repoRoot = path31.resolve(repoPathArg ?? process.cwd());
+  if (!existsSync31(repoRoot)) {
     const err2 = {
       code: "INVALID_INPUT",
       message: `El path "${repoRoot}" no existe.`,
@@ -6084,7 +6292,7 @@ async function runContextRender(repoPathArg, opts = {}) {
   const steps = [];
   const yamlPath = getCatalogYamlPath(repoRoot);
   const mdPath = getCatalogMarkdownPath(repoRoot);
-  if (!existsSync30(yamlPath)) {
+  if (!existsSync31(yamlPath)) {
     steps.push({
       type: "catalog-md",
       from: yamlPath,
@@ -6099,13 +6307,13 @@ async function runContextRender(repoPathArg, opts = {}) {
         steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "skipped", reason: "catalog.yml vac\xEDo" });
       } else {
         const next = renderCatalogMarkdown(catalog);
-        const current = existsSync30(mdPath) ? readFileSync24(mdPath, "utf-8") : "";
+        const current = existsSync31(mdPath) ? readFileSync25(mdPath, "utf-8") : "";
         if (current === next && !opts.force) {
           steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "unchanged" });
         } else if (opts.dryRun) {
           steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "would-write" });
         } else {
-          writeFileSync17(mdPath, next, "utf-8");
+          writeFileSync18(mdPath, next, "utf-8");
           steps.push({ type: "catalog-md", from: yamlPath, to: mdPath, action: "written" });
         }
       }
@@ -6137,7 +6345,7 @@ async function runContextRender(repoPathArg, opts = {}) {
   console.log(bold(`Render de vistas derivadas: ${repoRoot}`));
   console.log("");
   for (const step of steps) {
-    const target = path30.relative(repoRoot, step.to);
+    const target = path31.relative(repoRoot, step.to);
     switch (step.action) {
       case "written":
         printOk(`  ${target} \u2190 regenerado`);
@@ -6157,19 +6365,19 @@ async function runContextRender(repoPathArg, opts = {}) {
 }
 
 // src/commands/context-install-ci.ts
-import { existsSync as existsSync31, readFileSync as readFileSync25, writeFileSync as writeFileSync18, mkdirSync as mkdirSync19 } from "fs";
-import * as path31 from "path";
+import { existsSync as existsSync32, readFileSync as readFileSync26, writeFileSync as writeFileSync19, mkdirSync as mkdirSync20 } from "fs";
+import * as path32 from "path";
 import { fileURLToPath as fileURLToPath5 } from "url";
 function resolveTemplatePath(filename) {
   try {
-    const here = path31.dirname(fileURLToPath5(import.meta.url));
+    const here = path32.dirname(fileURLToPath5(import.meta.url));
     const candidates = [
-      path31.resolve(here, "../templates/ci", filename),
-      path31.resolve(here, "../../templates/ci", filename),
-      path31.resolve(here, "../../../templates/ci", filename)
+      path32.resolve(here, "../templates/ci", filename),
+      path32.resolve(here, "../../templates/ci", filename),
+      path32.resolve(here, "../../../templates/ci", filename)
     ];
     for (const c3 of candidates) {
-      if (existsSync31(c3)) return c3;
+      if (existsSync32(c3)) return c3;
     }
   } catch {
   }
@@ -6177,8 +6385,8 @@ function resolveTemplatePath(filename) {
 }
 async function runContextInstallCi(repoPathArg, opts = {}) {
   const jsonMode = isJsonMode(opts);
-  const repoRoot = path31.resolve(repoPathArg ?? process.cwd());
-  if (!existsSync31(repoRoot) || !isContextRepo(repoRoot)) {
+  const repoRoot = path32.resolve(repoPathArg ?? process.cwd());
+  if (!existsSync32(repoRoot) || !isContextRepo(repoRoot)) {
     const e = {
       code: "CONTEXT_REPO_INVALID",
       message: `${repoRoot} no parece ser un context repo.`,
@@ -6208,7 +6416,7 @@ async function runContextInstallCi(repoPathArg, opts = {}) {
   }
   const templateFilename = provider === "gitlab" ? "gitlab-hdu-transitions.yml" : "github-hdu-transitions.yml";
   const targetRelPath = provider === "gitlab" ? ".gitlab-ci.yml" : ".github/workflows/hdu-transitions.yml";
-  const targetPath = path31.join(repoRoot, targetRelPath);
+  const targetPath = path32.join(repoRoot, targetRelPath);
   const templatePath = resolveTemplatePath(templateFilename);
   if (!templatePath) {
     const e = {
@@ -6220,18 +6428,18 @@ async function runContextInstallCi(repoPathArg, opts = {}) {
     printErr(e.message);
     return 1;
   }
-  const templateContent = readFileSync25(templatePath, "utf-8");
+  const templateContent = readFileSync26(templatePath, "utf-8");
   let action;
-  if (!existsSync31(targetPath)) {
-    mkdirSync19(path31.dirname(targetPath), { recursive: true });
-    writeFileSync18(targetPath, templateContent, "utf-8");
+  if (!existsSync32(targetPath)) {
+    mkdirSync20(path32.dirname(targetPath), { recursive: true });
+    writeFileSync19(targetPath, templateContent, "utf-8");
     action = "written";
   } else {
-    const current = readFileSync25(targetPath, "utf-8");
+    const current = readFileSync26(targetPath, "utf-8");
     if (current === templateContent) {
       action = "unchanged";
     } else if (opts.force) {
-      writeFileSync18(targetPath, templateContent, "utf-8");
+      writeFileSync19(targetPath, templateContent, "utf-8");
       action = "overwritten";
     } else {
       action = "conflict";
@@ -6281,8 +6489,8 @@ async function runContextInstallCi(repoPathArg, opts = {}) {
 
 // src/commands/client-new.ts
 import { execSync as execSync6 } from "child_process";
-import { existsSync as existsSync32, mkdirSync as mkdirSync20, rmSync as rmSync3 } from "fs";
-import * as path32 from "path";
+import { existsSync as existsSync33, mkdirSync as mkdirSync21, rmSync as rmSync3 } from "fs";
+import * as path33 from "path";
 import * as os3 from "os";
 import { input as input3, password, select as select3, confirm as confirm2 } from "@inquirer/prompts";
 var isTTY9 = process.stdout.isTTY;
@@ -6484,7 +6692,7 @@ Onboarding del cliente: ${slug}
   }
   const cacheDir = getClientCacheDir(slug);
   const cloneUrl = embedTokenInUrl(contextRepoUrl, gitToken, provider);
-  if (existsSync32(cacheDir)) {
+  if (existsSync33(cacheDir)) {
     try {
       runGit4("git pull --ff-only", cacheDir);
       if (!jsonMode) printDim(`Cache local ya exist\xEDa, pull OK: ${cacheDir}`);
@@ -6493,9 +6701,9 @@ Onboarding del cliente: ${slug}
       rmSync3(cacheDir, { recursive: true, force: true });
     }
   }
-  if (!existsSync32(cacheDir)) {
-    const parentDir = path32.dirname(cacheDir);
-    if (!existsSync32(parentDir)) mkdirSync20(parentDir, { recursive: true });
+  if (!existsSync33(cacheDir)) {
+    const parentDir = path33.dirname(cacheDir);
+    if (!existsSync33(parentDir)) mkdirSync21(parentDir, { recursive: true });
     try {
       runGit4(`git clone "${cloneUrl}" "${cacheDir}"`);
       if (!jsonMode) printOk(`Cache local: ${cacheDir}`);
@@ -6523,7 +6731,7 @@ Onboarding del cliente: ${slug}
   if (!jsonMode) printOk("Registry + credentials guardados (~/.devflow/)");
   try {
     const markerPath = getContextRepoMarkerPath(cacheDir);
-    if (!existsSync32(markerPath) || opts.yes) {
+    if (!existsSync33(markerPath) || opts.yes) {
       saveContextRepoMarker(cacheDir, {
         kind: "context-repo",
         schema_version: "1.1",
@@ -6591,7 +6799,7 @@ function embedTokenInUrl(url, token, provider) {
 
 // src/commands/client-publish.ts
 import { execSync as execSync7 } from "child_process";
-import { existsSync as existsSync33 } from "fs";
+import { existsSync as existsSync34 } from "fs";
 function runGit5(cmd, cwd) {
   return execSync7(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
 }
@@ -6622,7 +6830,7 @@ async function runClientPublish(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync33(cacheDir)) {
+  if (!existsSync34(cacheDir)) {
     const err2 = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada: ${cacheDir}`,
@@ -6760,7 +6968,7 @@ Generado por dd-cli client publish (S3-4).`;
 }
 
 // src/commands/client-show.ts
-import { existsSync as existsSync34 } from "fs";
+import { existsSync as existsSync35 } from "fs";
 function ageInHours(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -6825,7 +7033,7 @@ async function runClientShow(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  const cacheExists = existsSync34(cacheDir);
+  const cacheExists = existsSync35(cacheDir);
   const state = readClientState(slug);
   const stateName = state?.state ?? "UNKNOWN";
   const isStale = ageInHours(entry.last_synced) > 24;
@@ -6943,7 +7151,7 @@ async function runClientShow(slug, opts = {}) {
 }
 
 // src/commands/client-list.ts
-import { existsSync as existsSync35, readdirSync as readdirSync8 } from "fs";
+import { existsSync as existsSync36, readdirSync as readdirSync9 } from "fs";
 function ageInHours2(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -6976,7 +7184,7 @@ function listClients() {
     const cacheDir = getClientCacheDir(entry.slug);
     const state = readClientState(entry.slug);
     let appsCount = 0;
-    if (existsSync35(cacheDir)) {
+    if (existsSync36(cacheDir)) {
       try {
         const catalog = loadCatalog(cacheDir);
         appsCount = catalog?.apps.length ?? 0;
@@ -7023,7 +7231,7 @@ async function runHome(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const clients = listClients();
   const skillsDir = getClaudeSkillsDir();
-  const skillsCount = existsSync35(skillsDir) ? readdirSync8(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
+  const skillsCount = existsSync36(skillsDir) ? readdirSync9(skillsDir).filter((f) => f.endsWith(".md")).length : 0;
   const claudeOk = isClaudeCodeInstalled();
   let activeSession = null;
   const projectRoot = findDevFlowProjectRoot();
@@ -7082,7 +7290,7 @@ async function runHome(opts = {}) {
 }
 
 // src/commands/client-refresh.ts
-import { existsSync as existsSync36 } from "fs";
+import { existsSync as existsSync37 } from "fs";
 function discoveryRepoToCatalogApp(repo) {
   const authProfile = repo.auth_pattern === "unknown" ? null : repo.auth_pattern;
   return CatalogAppSchema.parse({
@@ -7194,7 +7402,7 @@ async function runClientRefresh(slug, opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(slug);
-  if (!existsSync36(cacheDir)) {
+  if (!existsSync37(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada: ${cacheDir}`,
@@ -7354,8 +7562,8 @@ async function readKeyFiles2(provider, repoIdOrSlug, branch, concurrency) {
 
 // src/commands/client-onboard-dev.ts
 import { execSync as execSync8 } from "child_process";
-import { existsSync as existsSync37, mkdirSync as mkdirSync21, rmSync as rmSync4 } from "fs";
-import * as path33 from "path";
+import { existsSync as existsSync38, mkdirSync as mkdirSync22, rmSync as rmSync4 } from "fs";
+import * as path34 from "path";
 import { input as input4, password as password2 } from "@inquirer/prompts";
 var isTTY10 = process.stdout.isTTY;
 function runGit6(cmd, cwd) {
@@ -7475,7 +7683,7 @@ Setup local para ${slug}
   if (!jsonMode) printOk(`Token v\xE1lido \u2014 usuario ${tokenCheck.user ?? "desconocido"}`);
   const cacheDir = getClientCacheDir(slug);
   const cloneUrl = embedTokenInUrl2(contextUrl, gitToken, provider);
-  if (existsSync37(cacheDir)) {
+  if (existsSync38(cacheDir)) {
     try {
       runGit6("git pull --ff-only", cacheDir);
       if (!jsonMode) printDim(`Cache local ya exist\xEDa, pull OK: ${cacheDir}`);
@@ -7484,9 +7692,9 @@ Setup local para ${slug}
       rmSync4(cacheDir, { recursive: true, force: true });
     }
   }
-  if (!existsSync37(cacheDir)) {
-    const parentDir = path33.dirname(cacheDir);
-    if (!existsSync37(parentDir)) mkdirSync21(parentDir, { recursive: true });
+  if (!existsSync38(cacheDir)) {
+    const parentDir = path34.dirname(cacheDir);
+    if (!existsSync38(parentDir)) mkdirSync22(parentDir, { recursive: true });
     try {
       runGit6(`git clone "${cloneUrl}" "${cacheDir}"`);
       if (!jsonMode) printOk(`Cache local: ${cacheDir}`);
@@ -7519,7 +7727,7 @@ Setup local para ${slug}
   setClientCredentials(slug, creds);
   if (!jsonMode) printOk("Cliente registrado en esta m\xE1quina (~/.devflow/registry.yml + credentials.yml)");
   const skillsDir = getClaudeSkillsDir();
-  const skillsInstalled = existsSync37(skillsDir);
+  const skillsInstalled = existsSync38(skillsDir);
   if (!skillsInstalled && !jsonMode) {
     printWarn("Las skills DevFlow IA NO est\xE1n instaladas en esta m\xE1quina.");
     printDim("  Para instalarlas: dd-cli skills install");
@@ -7556,7 +7764,7 @@ Setup local para ${slug}
 }
 
 // src/commands/client-compare.ts
-import { existsSync as existsSync38 } from "fs";
+import { existsSync as existsSync39 } from "fs";
 function diffSets(a, b) {
   const setA = new Set(a);
   const setB = new Set(b);
@@ -7596,7 +7804,7 @@ async function runClientCompare(slugA, slugB, opts = {}) {
       printErr(e.message);
       return 2;
     }
-    if (!existsSync38(getClientCacheDir(slug))) {
+    if (!existsSync39(getClientCacheDir(slug))) {
       const e = {
         code: "CONTEXT_CACHE_MISSING",
         message: `Cache local no encontrada para "${slug}".`,
@@ -7810,8 +8018,10 @@ async function runErrorCodes(opts = {}) {
 }
 
 // src/commands/hdu-cmd.ts
-import { existsSync as existsSync39 } from "fs";
+import { existsSync as existsSync40 } from "fs";
 import { input as input5 } from "@inquirer/prompts";
+init_hdu();
+init_dev_type();
 var isTTY11 = process.stdout.isTTY;
 function resolveCacheDir(clientSlug) {
   const entry = getClient(clientSlug);
@@ -7826,7 +8036,7 @@ function resolveCacheDir(clientSlug) {
     };
   }
   const cacheDir = getClientCacheDir(clientSlug);
-  if (!existsSync39(cacheDir)) {
+  if (!existsSync40(cacheDir)) {
     return {
       ok: false,
       error: {
@@ -8290,7 +8500,8 @@ async function runHduIndexCmd(opts = {}) {
 }
 
 // src/commands/hdu-next.ts
-import { existsSync as existsSync40 } from "fs";
+import { existsSync as existsSync41 } from "fs";
+init_hdu();
 var PRIORITY_SCORE = {
   "cr\xEDtica": 100,
   "alta": 50,
@@ -8363,7 +8574,7 @@ async function runHduNext(opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(opts.client);
-  if (!existsSync40(cacheDir)) {
+  if (!existsSync41(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada para ${opts.client}.`
@@ -8449,9 +8660,10 @@ async function runHduNext(opts = {}) {
 }
 
 // src/commands/hdu-apply-merge.ts
+init_hdu();
 import { execSync as execSync9 } from "child_process";
-import { existsSync as existsSync41 } from "fs";
-import * as path34 from "path";
+import { existsSync as existsSync42 } from "fs";
+import * as path35 from "path";
 function runGit7(cmd, cwd) {
   return execSync9(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
 }
@@ -8464,7 +8676,7 @@ function getChangedHdusFilesFromHead(repoRoot) {
       cmd = "git diff --name-only HEAD";
     }
     const files = runGit7(cmd, repoRoot).split("\n").filter(Boolean);
-    return files.filter((f) => f.startsWith("hdus/") && f.endsWith(".md") && !path34.basename(f).startsWith("_"));
+    return files.filter((f) => f.startsWith("hdus/") && f.endsWith(".md") && !path35.basename(f).startsWith("_"));
   } catch {
     return [];
   }
@@ -8478,8 +8690,8 @@ function getCommitAuthorEmail(repoRoot) {
 }
 async function runHduApplyMerge(opts = {}) {
   const jsonMode = isJsonMode(opts);
-  const repoRoot = path34.resolve(opts.path ?? process.cwd());
-  if (!existsSync41(getHdusDir(repoRoot))) {
+  const repoRoot = path35.resolve(opts.path ?? process.cwd());
+  if (!existsSync42(getHdusDir(repoRoot))) {
     const e = {
       code: "CONTEXT_REPO_INVALID",
       message: `No hay hdus/ en ${repoRoot}. \xBFEst\xE1s en un context repo?`,
@@ -8507,7 +8719,7 @@ async function runHduApplyMerge(opts = {}) {
   const by = opts.by ?? getCommitAuthorEmail(repoRoot) ?? "ci@devflow-ia";
   const actions = [];
   for (const filename of changed) {
-    const basename4 = path34.basename(filename);
+    const basename4 = path35.basename(filename);
     const hdu = allHdus.find((h) => h.filename === basename4);
     if (!hdu) {
       printDim(`  (skip) ${basename4} \u2014 no parsea como HDU`);
@@ -8616,7 +8828,8 @@ Generado por dd-cli hdu apply-merge (S5-4).`;
 }
 
 // src/commands/stats-cmd.ts
-import { existsSync as existsSync42 } from "fs";
+import { existsSync as existsSync43 } from "fs";
+init_hdu();
 function parsePeriodToMs(period) {
   if (period === "all") return null;
   const match = period.match(/^(\d+)d$/);
@@ -8669,7 +8882,7 @@ async function runStats(opts = {}) {
     return 2;
   }
   const cacheDir = getClientCacheDir(opts.client);
-  if (!existsSync42(cacheDir)) {
+  if (!existsSync43(cacheDir)) {
     const e = {
       code: "CONTEXT_CACHE_MISSING",
       message: `Cache local no encontrada para ${opts.client}.`
@@ -8795,10 +9008,338 @@ async function runStats(opts = {}) {
   return 0;
 }
 
+// src/commands/sprint-cmd.ts
+import { existsSync as existsSync44 } from "fs";
+init_sprint();
+init_hdu();
+function resolveCacheDir2(slug) {
+  if (!slug) {
+    return { ok: false, err: { code: "INVALID_INPUT", message: "Falta --client=<slug>." } };
+  }
+  const entry = getClient(slug);
+  if (!entry) {
+    return { ok: false, err: { code: "CLIENT_NOT_REGISTERED", message: `Cliente "${slug}" no registrado.` } };
+  }
+  const cacheDir = getClientCacheDir(slug);
+  if (!existsSync44(cacheDir)) {
+    return { ok: false, err: { code: "CONTEXT_CACHE_MISSING", message: `Cache local no encontrada para "${slug}".` } };
+  }
+  return { ok: true, cacheDir, slug };
+}
+function parseDurationDays(d) {
+  const m = d.match(/^(\d+)d$/);
+  return m ? Number.parseInt(m[1] ?? "0", 10) : null;
+}
+function addDays(dateStr, days) {
+  const date = new Date(dateStr);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().split("T")[0] ?? dateStr;
+}
+async function runSprintNew(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const r = resolveCacheDir2(opts.client);
+  if (!r.ok) {
+    if (jsonMode) emitJson(jsonError({ command: "sprint new", ...r.err }));
+    printErr(r.err.message);
+    return r.err.code === "INVALID_INPUT" ? 3 : 2;
+  }
+  const duration = opts.duration ?? "14d";
+  const days = parseDurationDays(duration);
+  if (days === null || days <= 0) {
+    const e = { code: "INVALID_INPUT", message: `--duration=${duration} inv\xE1lido. Us\xE1 formato Nd (ej: 14d).` };
+    if (jsonMode) emitJson(jsonError({ command: "sprint new", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const start = opts.start ?? (/* @__PURE__ */ new Date()).toISOString().split("T")[0] ?? "";
+  const end = addDays(start, days);
+  const id = nextSprintId(r.cacheDir);
+  const sprint = SprintSchema.parse({
+    id,
+    client: r.slug,
+    start,
+    end,
+    hdus: [],
+    goal: opts.goal ?? null,
+    created_by: opts.createdBy,
+    created_at: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  saveSprint(r.cacheDir, sprint);
+  saveCurrentSprint(r.cacheDir, { client: r.slug, current_sprint: id });
+  if (jsonMode) {
+    emitJson(jsonSuccess("sprint new", { id, start, end, duration_days: days }));
+  }
+  printOk(`Sprint ${bold(id)} creado para ${r.slug}.`);
+  printDim(`  rango:  ${start} \u2192 ${end}  (${days} d\xEDas)`);
+  if (opts.goal) printDim(`  goal:   ${opts.goal}`);
+  printDim(`  current_sprint apuntando a ${id}`);
+  return 0;
+}
+async function runSprintShow(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const r = resolveCacheDir2(opts.client);
+  if (!r.ok) {
+    if (jsonMode) emitJson(jsonError({ command: "sprint show", ...r.err }));
+    printErr(r.err.message);
+    return r.err.code === "INVALID_INPUT" ? 3 : 2;
+  }
+  let id = opts.id;
+  if (!id) {
+    const current = loadCurrentSprint(r.cacheDir);
+    if (!current) {
+      if (jsonMode) emitJson(jsonSuccess("sprint show", { current_sprint: null, sprint: null }));
+      printDim("  Sin sprint actual. Cre\xE1 uno: dd-cli sprint new --client=" + r.slug);
+      return 0;
+    }
+    id = current.current_sprint;
+  }
+  const sprint = loadSprint(r.cacheDir, id);
+  if (!sprint) {
+    const e = { code: "INVALID_INPUT", message: `Sprint "${id}" no existe.` };
+    if (jsonMode) emitJson(jsonError({ command: "sprint show", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const hdus = listHdus(r.cacheDir);
+  const hduStatus = sprint.hdus.map((hduId) => {
+    const h = hdus.find((x) => x.frontmatter.id === hduId);
+    return {
+      id: hduId,
+      title: h?.frontmatter.title ?? "(no encontrada)",
+      status: h?.frontmatter.status ?? "unknown",
+      assigned_to: h?.frontmatter.assigned_to ?? null
+    };
+  });
+  if (jsonMode) {
+    emitJson(jsonSuccess("sprint show", { ...sprint, hdus_detail: hduStatus }));
+  }
+  console.log("");
+  console.log(`  ${bold(sprint.id)}    ${bold(sprint.client)}`);
+  printDim(`  rango:  ${sprint.start} \u2192 ${sprint.end}`);
+  if (sprint.goal) printDim(`  goal:   ${sprint.goal}`);
+  console.log("");
+  console.log(bold(`  HDUs (${hduStatus.length})`));
+  if (hduStatus.length === 0) {
+    printDim("  (ninguna asignada al sprint todav\xEDa)");
+  } else {
+    for (const h of hduStatus) {
+      const assignee = h.assigned_to ? ` \u2192 ${h.assigned_to}` : "";
+      console.log(`    ${bold(h.id.padEnd(10))} ${h.status.padEnd(13)} ${h.title}${assignee}`);
+    }
+  }
+  return 0;
+}
+async function runSprintAdd(hduId, opts = {}) {
+  return mutateSprintHdus("add", hduId, opts);
+}
+async function runSprintRemove(hduId, opts = {}) {
+  return mutateSprintHdus("remove", hduId, opts);
+}
+async function mutateSprintHdus(action, hduId, opts) {
+  const jsonMode = isJsonMode(opts);
+  const r = resolveCacheDir2(opts.client);
+  if (!r.ok) {
+    if (jsonMode) emitJson(jsonError({ command: `sprint ${action}`, ...r.err }));
+    printErr(r.err.message);
+    return r.err.code === "INVALID_INPUT" ? 3 : 2;
+  }
+  if (!hduId) {
+    const e = { code: "INVALID_INPUT", message: `Uso: dd-cli sprint ${action} <HDU-id> --client=<slug> [--sprint=<SPRINT-N>]` };
+    if (jsonMode) emitJson(jsonError({ command: `sprint ${action}`, ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  let sprintId = opts.sprint;
+  if (!sprintId) {
+    const current = loadCurrentSprint(r.cacheDir);
+    if (!current) {
+      const e = { code: "INVALID_INPUT", message: "No hay sprint activo. Pas\xE1 --sprint=<id> o cre\xE1 uno: dd-cli sprint new." };
+      if (jsonMode) emitJson(jsonError({ command: `sprint ${action}`, ...e }));
+      printErr(e.message);
+      return 3;
+    }
+    sprintId = current.current_sprint;
+  }
+  const sprint = loadSprint(r.cacheDir, sprintId);
+  if (!sprint) {
+    const e = { code: "INVALID_INPUT", message: `Sprint "${sprintId}" no existe.` };
+    if (jsonMode) emitJson(jsonError({ command: `sprint ${action}`, ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const hdus = listHdus(r.cacheDir);
+  const hdu = hdus.find((h) => h.frontmatter.id === hduId);
+  if (!hdu) {
+    const e = { code: "HDU_NOT_FOUND", message: `HDU "${hduId}" no existe.` };
+    if (jsonMode) emitJson(jsonError({ command: `sprint ${action}`, ...e }));
+    printErr(e.message);
+    return 2;
+  }
+  const wasIn = sprint.hdus.includes(hduId);
+  if (action === "add") {
+    if (wasIn) {
+      printDim(`  ${hduId} ya estaba en ${sprintId}.`);
+      return 0;
+    }
+    sprint.hdus.push(hduId);
+    hdu.frontmatter.sprint = sprintId;
+  } else {
+    if (!wasIn) {
+      printDim(`  ${hduId} no estaba en ${sprintId}.`);
+      return 0;
+    }
+    sprint.hdus = sprint.hdus.filter((id) => id !== hduId);
+    if (hdu.frontmatter.sprint === sprintId) {
+      hdu.frontmatter.sprint = null;
+    }
+  }
+  saveSprint(r.cacheDir, sprint);
+  const { saveHdu: saveHdu2 } = await Promise.resolve().then(() => (init_hdu(), hdu_exports));
+  saveHdu2(r.cacheDir, hdu);
+  if (jsonMode) {
+    emitJson(jsonSuccess(`sprint ${action}`, { sprint: sprintId, hdu: hduId, total_hdus: sprint.hdus.length }));
+  }
+  printOk(`${action === "add" ? "Agregada" : "Removida"} ${bold(hduId)} ${action === "add" ? "al" : "del"} ${bold(sprintId)} (${sprint.hdus.length} HDUs total).`);
+  return 0;
+}
+async function runSprintClose(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const r = resolveCacheDir2(opts.client);
+  if (!r.ok) {
+    if (jsonMode) emitJson(jsonError({ command: "sprint close", ...r.err }));
+    printErr(r.err.message);
+    return r.err.code === "INVALID_INPUT" ? 3 : 2;
+  }
+  let id = opts.id;
+  if (!id) {
+    const current2 = loadCurrentSprint(r.cacheDir);
+    if (!current2) {
+      const e = { code: "INVALID_INPUT", message: "No hay sprint activo para cerrar." };
+      if (jsonMode) emitJson(jsonError({ command: "sprint close", ...e }));
+      printErr(e.message);
+      return 3;
+    }
+    id = current2.current_sprint;
+  }
+  const sprint = loadSprint(r.cacheDir, id);
+  if (!sprint) {
+    const e = { code: "INVALID_INPUT", message: `Sprint "${id}" no existe.` };
+    if (jsonMode) emitJson(jsonError({ command: "sprint close", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const hdus = listHdus(r.cacheDir);
+  const hdusInSprint = hdus.filter((h) => sprint.hdus.includes(h.frontmatter.id));
+  const done = hdusInSprint.filter((h) => h.frontmatter.status === "done").length;
+  const open = hdusInSprint.length - done;
+  const current = loadCurrentSprint(r.cacheDir);
+  if (current && current.current_sprint === id) {
+    const { clearCurrentSprint: clearCurrentSprint2 } = await Promise.resolve().then(() => (init_sprint(), sprint_exports));
+    clearCurrentSprint2(r.cacheDir);
+  }
+  if (jsonMode) {
+    emitJson(jsonSuccess("sprint close", {
+      id,
+      hdus_total: hdusInSprint.length,
+      hdus_done: done,
+      hdus_open: open,
+      completion_rate: hdusInSprint.length === 0 ? 0 : done / hdusInSprint.length
+    }));
+  }
+  console.log("");
+  printOk(`${bold(id)} cerrado.`);
+  console.log("");
+  console.log(bold("  Cierre"));
+  console.log(`    HDUs total:     ${hdusInSprint.length}`);
+  console.log(`    cerradas:       ${done}`);
+  console.log(`    abiertas:       ${open}`);
+  if (hdusInSprint.length > 0) {
+    console.log(`    completion:     ${(done / hdusInSprint.length * 100).toFixed(0)}%`);
+  }
+  console.log("");
+  return 0;
+}
+async function runSprintBurndown(opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  const r = resolveCacheDir2(opts.client);
+  if (!r.ok) {
+    if (jsonMode) emitJson(jsonError({ command: "sprint burndown", ...r.err }));
+    printErr(r.err.message);
+    return r.err.code === "INVALID_INPUT" ? 3 : 2;
+  }
+  let id = opts.sprint;
+  if (!id) {
+    const current = loadCurrentSprint(r.cacheDir);
+    if (!current) {
+      const e = { code: "INVALID_INPUT", message: "No hay sprint activo." };
+      if (jsonMode) emitJson(jsonError({ command: "sprint burndown", ...e }));
+      printErr(e.message);
+      return 3;
+    }
+    id = current.current_sprint;
+  }
+  const sprint = loadSprint(r.cacheDir, id);
+  if (!sprint) {
+    const e = { code: "INVALID_INPUT", message: `Sprint "${id}" no existe.` };
+    if (jsonMode) emitJson(jsonError({ command: "sprint burndown", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const startMs = new Date(sprint.start).getTime();
+  const endMs = new Date(sprint.end).getTime();
+  const totalDays = Math.max(1, Math.round((endMs - startMs) / 864e5));
+  const transitions = readTransitions(r.cacheDir);
+  const totalHdus = sprint.hdus.length;
+  const burndown = [];
+  for (let d = 0; d <= totalDays; d++) {
+    const cutoff = startMs + d * 864e5;
+    let doneCount = 0;
+    for (const hduId of sprint.hdus) {
+      const lastDone = transitions.filter((t) => t.hdu === hduId && t.to === "done").map((t) => new Date(t.ts).getTime()).filter((ts) => ts <= cutoff).pop();
+      if (lastDone) doneCount++;
+    }
+    const remaining = totalHdus - doneCount;
+    const ideal = totalDays === 0 ? 0 : Math.max(0, totalHdus - Math.round(totalHdus * d / totalDays));
+    burndown.push({
+      day: d,
+      date: new Date(cutoff).toISOString().split("T")[0] ?? "",
+      remaining,
+      ideal
+    });
+  }
+  if (jsonMode) {
+    emitJson(jsonSuccess("sprint burndown", {
+      sprint: id,
+      total_days: totalDays,
+      total_hdus: totalHdus,
+      burndown
+    }));
+  }
+  console.log("");
+  console.log(`  ${bold(`Burndown ${id}`)}    ${sprint.start} \u2192 ${sprint.end}`);
+  console.log("");
+  console.log(`  HDUs total: ${totalHdus}`);
+  console.log("");
+  if (totalHdus === 0) {
+    printDim("  (sprint sin HDUs)");
+    return 0;
+  }
+  const maxBarLen = 30;
+  console.log(bold(`  d\xEDa   fecha       remaining  ideal`));
+  for (const point of burndown) {
+    const barLen = Math.round(point.remaining / totalHdus * maxBarLen);
+    const bar = "\u2588".repeat(Math.max(0, barLen));
+    const idealMarker = "\xB7".repeat(Math.max(0, Math.round(point.ideal / totalHdus * maxBarLen)));
+    console.log(`  ${point.day.toString().padStart(3)}   ${point.date}  ${bar.padEnd(maxBarLen)} ${point.remaining.toString().padStart(2)} / ideal ${point.ideal}`);
+  }
+  console.log("");
+  return 0;
+}
+
 // src/commands/guide-cmd.ts
-import { existsSync as existsSync43, readFileSync as readFileSync26 } from "fs";
+import { existsSync as existsSync45, readFileSync as readFileSync27 } from "fs";
 import { spawnSync } from "child_process";
-import * as path35 from "path";
+import * as path36 from "path";
 import { fileURLToPath as fileURLToPath6 } from "url";
 var TOPICS = {
   "hdu": "guia-hdu-flow.md",
@@ -8808,14 +9349,14 @@ var TOPICS = {
 };
 function resolveDocsPath(filename) {
   try {
-    const here = path35.dirname(fileURLToPath6(import.meta.url));
+    const here = path36.dirname(fileURLToPath6(import.meta.url));
     const candidates = [
-      path35.resolve(here, "../docs", filename),
-      path35.resolve(here, "../../docs", filename),
-      path35.resolve(here, "../../../docs", filename)
+      path36.resolve(here, "../docs", filename),
+      path36.resolve(here, "../../docs", filename),
+      path36.resolve(here, "../../../docs", filename)
     ];
     for (const c3 of candidates) {
-      if (existsSync43(c3)) return c3;
+      if (existsSync45(c3)) return c3;
     }
   } catch {
   }
@@ -8869,7 +9410,7 @@ async function runGuide(topic, opts = {}) {
     spawnSync("less", ["-R", docPath], { stdio: "inherit" });
     return 0;
   }
-  const content = readFileSync26(docPath, "utf-8");
+  const content = readFileSync27(docPath, "utf-8");
   process.stdout.write(content);
   if (!process.stdout.isTTY) return 0;
   console.log("");
@@ -8878,7 +9419,8 @@ async function runGuide(topic, opts = {}) {
 }
 
 // src/commands/today-cmd.ts
-import { existsSync as existsSync44 } from "fs";
+import { existsSync as existsSync46 } from "fs";
+init_hdu();
 function ageInHours3(iso) {
   if (!iso) return Infinity;
   return (Date.now() - new Date(iso).getTime()) / 36e5;
@@ -8908,7 +9450,7 @@ async function runToday(opts = {}) {
   const queue = [];
   for (const entry of Object.values(registry.clients)) {
     const cacheDir = getClientCacheDir(entry.slug);
-    if (!existsSync44(cacheDir)) continue;
+    if (!existsSync46(cacheDir)) continue;
     let hdus;
     try {
       hdus = listHdus(cacheDir);
@@ -8944,7 +9486,7 @@ async function runToday(opts = {}) {
     }
     if (user) {
       const cacheDir = getClientCacheDir(entry.slug);
-      if (!existsSync44(cacheDir)) continue;
+      if (!existsSync46(cacheDir)) continue;
       let hdus;
       try {
         hdus = listHdus(cacheDir);
@@ -9014,26 +9556,26 @@ async function runToday(opts = {}) {
 }
 
 // src/commands/inbox-cmd.ts
-import { existsSync as existsSync45, mkdirSync as mkdirSync22, readFileSync as readFileSync27, appendFileSync as appendFileSync5, writeFileSync as writeFileSync19 } from "fs";
-import * as path36 from "path";
-import { z as z11 } from "zod";
-var InboxEventSchema = z11.object({
-  ts: z11.string(),
-  client: z11.string().optional(),
-  kind: z11.string(),
+import { existsSync as existsSync47, mkdirSync as mkdirSync23, readFileSync as readFileSync28, appendFileSync as appendFileSync5, writeFileSync as writeFileSync20 } from "fs";
+import * as path37 from "path";
+import { z as z12 } from "zod";
+var InboxEventSchema = z12.object({
+  ts: z12.string(),
+  client: z12.string().optional(),
+  kind: z12.string(),
   // hdu_assigned | mr_merged | context_updated | etc.
-  data: z11.record(z11.string(), z11.unknown()).default({}),
-  read: z11.boolean().default(false),
-  id: z11.string().optional()
+  data: z12.record(z12.string(), z12.unknown()).default({}),
+  read: z12.boolean().default(false),
+  id: z12.string().optional()
   // generado al append si no viene
 });
 function getInboxPath() {
-  return path36.join(getDevflowGlobalDir(), "inbox.jsonl");
+  return path37.join(getDevflowGlobalDir(), "inbox.jsonl");
 }
 function readInbox() {
   const p = getInboxPath();
-  if (!existsSync45(p)) return [];
-  return readFileSync27(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
+  if (!existsSync47(p)) return [];
+  return readFileSync28(p, "utf-8").split("\n").filter((l) => l.trim().length > 0).map((l) => {
     try {
       return InboxEventSchema.parse(JSON.parse(l));
     } catch {
@@ -9043,15 +9585,15 @@ function readInbox() {
 }
 function writeInbox(events) {
   const p = getInboxPath();
-  const dir = path36.dirname(p);
-  if (!existsSync45(dir)) mkdirSync22(dir, { recursive: true });
+  const dir = path37.dirname(p);
+  if (!existsSync47(dir)) mkdirSync23(dir, { recursive: true });
   const content = events.map((e) => JSON.stringify(InboxEventSchema.parse(e))).join("\n") + "\n";
-  writeFileSync19(p, content, "utf-8");
+  writeFileSync20(p, content, "utf-8");
 }
 function appendInboxEvent(event) {
   const p = getInboxPath();
-  const dir = path36.dirname(p);
-  if (!existsSync45(dir)) mkdirSync22(dir, { recursive: true });
+  const dir = path37.dirname(p);
+  if (!existsSync47(dir)) mkdirSync23(dir, { recursive: true });
   const full = InboxEventSchema.parse({
     ts: event.ts ?? (/* @__PURE__ */ new Date()).toISOString(),
     read: event.read ?? false,
@@ -9174,7 +9716,7 @@ async function runInboxAdd(opts = {}) {
 }
 
 // src/commands/telemetry-cmd.ts
-import { existsSync as existsSync46, statSync as statSync8, unlinkSync } from "fs";
+import { existsSync as existsSync48, statSync as statSync8, unlinkSync } from "fs";
 import { confirm as confirm5 } from "@inquirer/prompts";
 var isTTY12 = process.stdout.isTTY;
 async function runTelemetryEnable(opts = {}) {
@@ -9226,7 +9768,7 @@ async function runTelemetryStatus(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const config = loadTelemetryConfig();
   const eventsPath = getTelemetryEventsPath();
-  const eventsExists = existsSync46(eventsPath);
+  const eventsExists = existsSync48(eventsPath);
   const fileSize = eventsExists ? statSync8(eventsPath).size : 0;
   const events = eventsExists ? readTelemetryEvents() : [];
   if (jsonMode) {
@@ -9315,7 +9857,7 @@ async function runTelemetryReport(opts = {}) {
 async function runTelemetryPurge(opts = {}) {
   const jsonMode = isJsonMode(opts);
   const p = getTelemetryEventsPath();
-  if (!existsSync46(p)) {
+  if (!existsSync48(p)) {
     if (jsonMode) emitJson(jsonSuccess("telemetry purge", { purged: false, reason: "no events file" }));
     printDim("No hay archivo de eventos para borrar.");
     return 0;
@@ -9741,6 +10283,55 @@ program.command("today").description("Ritual matutino del dev: sesi\xF3n activa,
 program.command("guide [topic]").description("Abre una gu\xEDa paginada en terminal. Topics: hdu, onboarding, dev.").option("--json", "Output JSON con el listado de topics", false).action(async (topic, opts) => {
   try {
     process.exit(await runGuide(topic, { json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+var sprintCmd = program.command("sprint").description("Gesti\xF3n de sprints (S7-5): planificaci\xF3n + tracking sobre HDUs.");
+sprintCmd.command("new").description("Crea un sprint nuevo (auto-incremento de ID).").option("--client <slug>", "Slug del cliente (obligatorio)").option("--duration <d>", "Duraci\xF3n (default 14d)", "14d").option("--start <date>", "Fecha de inicio YYYY-MM-DD (default hoy)").option("--goal <g>", "Objetivo del sprint").option("--created-by <email>", "Email del Tech Lead").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runSprintNew(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+sprintCmd.command("show").description("Muestra el sprint actual + sus HDUs con status. --id para mostrar uno espec\xEDfico.").option("--client <slug>", "Slug del cliente").option("--id <id>", "Sprint espec\xEDfico (default: current)").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runSprintShow(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+sprintCmd.command("add <hduId>").description("Agrega una HDU al sprint actual (o al --sprint=<id> dado).").option("--client <slug>", "Slug del cliente").option("--sprint <id>", "Sprint espec\xEDfico (default: current)").option("--json", "Output JSON", false).action(async (id, opts) => {
+  try {
+    process.exit(await runSprintAdd(id, opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+sprintCmd.command("remove <hduId>").description("Remueve una HDU del sprint.").option("--client <slug>", "Slug del cliente").option("--sprint <id>", "Sprint espec\xEDfico (default: current)").option("--json", "Output JSON", false).action(async (id, opts) => {
+  try {
+    process.exit(await runSprintRemove(id, opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+sprintCmd.command("close").description("Cierra el sprint. Muestra el % de completion.").option("--client <slug>", "Slug del cliente").option("--id <id>", "Sprint espec\xEDfico (default: current)").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runSprintClose(opts));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+sprintCmd.command("burndown").description("Burndown ASCII del sprint actual.").option("--client <slug>", "Slug del cliente").option("--sprint <id>", "Sprint espec\xEDfico (default: current)").option("--json", "Output JSON", false).action(async (opts) => {
+  try {
+    process.exit(await runSprintBurndown(opts));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);
