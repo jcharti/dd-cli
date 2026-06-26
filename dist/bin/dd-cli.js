@@ -4348,11 +4348,11 @@ async function runWatch(opts = {}) {
   };
   render();
   const timer = setInterval(render, interval);
-  await new Promise((resolve9) => {
+  await new Promise((resolve10) => {
     process.on("SIGINT", () => {
       clearInterval(timer);
       cleanup();
-      resolve9();
+      resolve10();
     });
   });
 }
@@ -7963,6 +7963,88 @@ async function runStats(opts = {}) {
   return 0;
 }
 
+// src/commands/guide-cmd.ts
+import { existsSync as existsSync39, readFileSync as readFileSync23 } from "fs";
+import { spawnSync } from "child_process";
+import * as path32 from "path";
+import { fileURLToPath as fileURLToPath5 } from "url";
+var TOPICS = {
+  "hdu": "guia-hdu-flow.md",
+  "hdus": "guia-hdu-flow.md",
+  "onboarding": "guia-empresa.md",
+  "dev": "guia-dev-cli.md"
+};
+function resolveDocsPath(filename) {
+  try {
+    const here = path32.dirname(fileURLToPath5(import.meta.url));
+    const candidates = [
+      path32.resolve(here, "../docs", filename),
+      path32.resolve(here, "../../docs", filename),
+      path32.resolve(here, "../../../docs", filename)
+    ];
+    for (const c3 of candidates) {
+      if (existsSync39(c3)) return c3;
+    }
+  } catch {
+  }
+  return null;
+}
+async function runGuide(topic, opts = {}) {
+  const jsonMode = isJsonMode(opts);
+  if (!topic) {
+    if (jsonMode) {
+      emitJson(jsonError({
+        command: "guide",
+        code: "INVALID_INPUT",
+        message: "Falta el topic. Uso: dd-cli guide <topic>",
+        context: { available_topics: Object.keys(TOPICS) }
+      }));
+    }
+    console.log("");
+    console.log(bold("Gu\xEDas disponibles:"));
+    for (const t of Object.keys(TOPICS)) {
+      console.log(`  dd-cli guide ${t}`);
+    }
+    console.log("");
+    return 3;
+  }
+  const filename = TOPICS[topic];
+  if (!filename) {
+    const e = {
+      code: "INVALID_INPUT",
+      message: `Topic "${topic}" no existe.`,
+      context: { available_topics: Object.keys(TOPICS) },
+      recovery_hints: [`Topics: ${Object.keys(TOPICS).join(", ")}`]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "guide", ...e }));
+    printErr(e.message);
+    return 3;
+  }
+  const docPath = resolveDocsPath(filename);
+  if (!docPath) {
+    const e = {
+      code: "CONFIG_MISSING",
+      message: `No pude resolver el path de la gu\xEDa "${filename}".`,
+      context: { filename },
+      recovery_hints: ["Reinstal\xE1 el CLI o report\xE1 el bug"]
+    };
+    if (jsonMode) emitJson(jsonError({ command: "guide", ...e }));
+    printErr(e.message);
+    return 1;
+  }
+  const lessAvailable = process.stdout.isTTY && spawnSync("which", ["less"], { stdio: "ignore" }).status === 0;
+  if (lessAvailable) {
+    spawnSync("less", ["-R", docPath], { stdio: "inherit" });
+    return 0;
+  }
+  const content = readFileSync23(docPath, "utf-8");
+  process.stdout.write(content);
+  if (!process.stdout.isTTY) return 0;
+  console.log("");
+  printDim("\u2014 fin de la gu\xEDa. Para paginar mejor, instal\xE1 `less`.");
+  return 0;
+}
+
 // src/bin/dd-cli.ts
 var program = new Command();
 program.name("dd-cli").description("DevFlow IA \u2014 CLI oficial \xB7 bridge local entre Claude Code y la plataforma").version(CLI_VERSION);
@@ -8213,6 +8295,14 @@ clientCmd.command("show <slug>").description("Dashboard del cliente: stack, apps
 clientCmd.command("list").description("Lista todos los clientes registrados con estado, apps y \xFAltimo sync.").option("--json", "Output JSON estructurado (S1-9 / D-7/D-8)", false).action(async (opts) => {
   try {
     process.exit(await runClientList({ json: opts.json }));
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(10);
+  }
+});
+program.command("guide [topic]").description("Abre una gu\xEDa paginada en terminal. Topics: hdu, onboarding, dev.").option("--json", "Output JSON con el listado de topics", false).action(async (topic, opts) => {
+  try {
+    process.exit(await runGuide(topic, { json: opts.json }));
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e));
     process.exit(10);

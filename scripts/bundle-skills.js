@@ -71,3 +71,20 @@ writeFileSync(checksumsPath, JSON.stringify(checksums, null, 2) + '\n');
 
 console.log(`✓ ${skillCount} skills copiadas → dist/skills/`);
 console.log(`✓ skills.checksums generado`);
+
+// S5-11: copiar también docs/ a dist/docs/ para que `dd-cli guide` los
+// resuelva en runtime (los busca relativos al dist/ por defecto).
+const docsSrc = path.resolve(__dirname, '..', 'docs');
+if (existsSync(docsSrc)) {
+  const docsDest = path.resolve(__dirname, '..', 'dist', 'docs');
+  if (!existsSync(docsDest)) mkdirSync(docsDest, { recursive: true });
+  let docsCount = 0;
+  for (const entry of readdirSync(docsSrc)) {
+    const srcP = path.join(docsSrc, entry);
+    if (statSync(srcP).isFile() && entry.endsWith('.md')) {
+      copyFileSync(srcP, path.join(docsDest, entry));
+      docsCount++;
+    }
+  }
+  console.log(`✓ ${docsCount} guías copiadas → dist/docs/`);
+}

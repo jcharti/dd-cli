@@ -41,6 +41,7 @@ import {
 } from '../commands/hdu-cmd.js';
 import { runHduNext } from '../commands/hdu-next.js';
 import { runStats } from '../commands/stats-cmd.js';
+import { runGuide } from '../commands/guide-cmd.js';
 import { isContextRepo } from '../types/context-repo.js';
 
 const program = new Command();
@@ -418,6 +419,15 @@ clientCmd
   .option('--json', 'Output JSON estructurado (S1-9 / D-7/D-8)', false)
   .action(async (opts: { json?: boolean }) => {
     try { process.exit(await runClientList({ json: opts.json })); }
+    catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
+  });
+
+program
+  .command('guide [topic]')
+  .description('Abre una guía paginada en terminal. Topics: hdu, onboarding, dev.')
+  .option('--json', 'Output JSON con el listado de topics', false)
+  .action(async (topic: string | undefined, opts: { json?: boolean }) => {
+    try { process.exit(await runGuide(topic, { json: opts.json })); }
     catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(10); }
   });
 
