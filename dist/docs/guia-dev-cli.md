@@ -1,6 +1,6 @@
 # Guía del dev — `dd-cli`
 
-> **Para quién es esta guía:** si sos dev en un proyecto que usa DevFlow IA,
+> **Para quién es esta guía:** si eres dev en un proyecto que usa DevFlow IA,
 > acá está todo lo que necesitás saber para usar el CLI en tu trabajo diario.
 > No requiere documentación técnica previa.
 >
@@ -13,7 +13,7 @@
 
 ## En dos líneas: qué hace DevFlow IA en tu día
 
-**Modo skill-first (recomendado):** abrí Claude Code y conversá con skills.
+**Modo skill-first (recomendado):** abre Claude Code y conversa con skills.
 4 skills cubren tu día completo sin tipear comandos CLI.
 
 ```
@@ -724,7 +724,7 @@ dd-cli hdu new "Autenticación SSO portal cliente" \
 ```
 
 Crea el archivo en `~/.devflow/clients/<empresa>/hdus/HDU-N-...md` con
-status `draft`. Después editás el cuerpo y el TL la aprueba vía
+status `draft`. Después editas el cuerpo y el TL la aprueba vía
 `/devflow-ia:hdu-board` o `dd-cli hdu approve`.
 
 ### Para hotfixes urgentes (v0.7+)
@@ -841,7 +841,7 @@ fallan con `NETWORK_ERROR` claro y `recovery_hints` para reintentar
 cuando vuelva.
 
 **¿Las skills se actualizan automáticamente?**
-No — cuando hay una versión nueva del CLI, ejecutás `dd-cli skills install`
+No — cuando hay una versión nueva del CLI, ejecutas `dd-cli skills install`
 y listo. El linter previene que una skill modificada localmente se cuele.
 
 **¿Cada dev tiene su propio token?**

@@ -17,7 +17,7 @@ CLI por debajo:
 
 Los comandos CLI directos que esta guía describe son **el contrato técnico
 debajo de las skills**. Si conversás con Claude no necesitás aprenderlos;
-si preferís CLI directo o estás scripteando, los tipeás vos.
+si preferís CLI directo o estás scripteando, los escribes tú.
 
 Si te perdés: `/devflow-ia:troubleshoot <slug>` desde Claude lee tu
 `state.json` + último error y te propone el fix. CLI fallback:
@@ -40,7 +40,7 @@ Esto crea `~/.devflow/clients/iprsa/hdus/HDU-1-login-con-sso-portal-cliente.md`
 con frontmatter mínimo + template de cuerpo. Le asigna `HDU-1` (siguiente
 disponible). Estado: `draft`.
 
-**Después de crear:** abrí el archivo y completá:
+**Después de crear:** abre el archivo y completa:
 - `## Como` `## Quiero` `## Para` (perfil + feature + valor).
 - `## Criterios de aceptación` (Gherkin: Dado/Cuando/Entonces).
 - `## Notas técnicas` (contexto que el dev necesita).
@@ -61,7 +61,7 @@ disponible). Estado: `draft`.
 ```
 
 Esta skill toma el brief y agrega edge cases, criterios técnicos faltantes,
-riesgos. Sirve cuando la HDU está cruda y querés mejorarla antes de la
+riesgos. Sirve cuando la HDU está cruda y quieres mejorarla antes de la
 aprobación del TL.
 
 Después del refine, editar manualmente el archivo y guardar.
@@ -92,7 +92,7 @@ confirmación.
 **Si falla:**
 - `HDU_NOT_FOUND` → listá con `dd-cli hdu list --client=<slug>`.
 - `INVALID_INPUT (transición ilegal)` → la HDU ya está en otro estado.
-  Revisá el historial con `dd-cli hdu show <id> --client=<slug>`.
+  Revisa el historial con `dd-cli hdu show <id> --client=<slug>`.
 
 ---
 
@@ -143,7 +143,7 @@ cd <repo-de-codigo-del-cliente>
 dd-cli start-session HDU-1
 ```
 
-`claim` se asigna a vos mismo. `start` mueve a `in-progress`. `start-session`
+`claim` se asigna a ti mismo. `start` mueve a `in-progress`. `start-session`
 arranca la sesión de Claude Code con el método DevFlow (skills,
 enforcement, statusline).
 
@@ -204,7 +204,7 @@ dd-cli hdu cancel HDU-1 --client=iprsa --reason="Negocio cambió de scope" --by=
 `--reason` es obligatorio. Las canceladas NO cuentan en throughput pero
 sí en `cancellation_rate` (signal de churn).
 
-Si después querés retomar: nueva HDU con `references: [HDU-1]` en el
+Si después quieres retomar: nueva HDU con `references: [HDU-1]` en el
 frontmatter.
 
 ---

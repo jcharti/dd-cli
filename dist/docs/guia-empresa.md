@@ -223,7 +223,7 @@ dd-cli client new <slug> \
 dd-cli client discover <slug>
 
 # Si el discovery detectó todo bien y no hay decisiones humanas
-# pendientes, podés ir directo a publish:
+# pendientes, puedes ir directo a publish:
 dd-cli client publish <slug>
 ```
 
@@ -242,7 +242,7 @@ El repo de contexto no es estático. Debe actualizarse cuando:
 
 **Vía skill (v0.6+):** `/devflow-ia:client-refresh` re-corre el discovery
 y muestra el diff vs el catálogo actual (added/modified/removed). Si
-confirmás, ejecuta `dd-cli client refresh --apply`, regenera el markdown
+confirmas, ejecuta `dd-cli client refresh --apply`, regenera el markdown
 derivado y propone el commit + push. Preserva los campos editados a mano
 (name, ci_cd_profile, repo, preferred_dev_types, tags, notes).
 
@@ -912,7 +912,7 @@ o `/devflow-ia:daily-standup` y conversa con Claude.
 ### Para el consultor Digital-Dev (v0.6+)
 
 - [ ] Generar PAT en la plataforma de la empresa con scope `api` (GitLab)
-  o `repo` (GitHub) + verificar que sos Maintainer/admin del group/org
+  o `repo` (GitHub) + verificar que eres Maintainer/admin del group/org
 - [ ] `npm install -g @devflow-ia/cli@0.6.0` + `dd-cli install`
 - [ ] En Claude Code: `/devflow-ia:client-onboard` (la skill orquesta todo)
 - [ ] Revisar el `catalog.yml` generado con el Tech Lead — completar los
