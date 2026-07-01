@@ -64,11 +64,11 @@ dd-cli session-repair        → repara session.json si el schema falla
 
 ```bash
 # Instalar desde el release público
-npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.0/devflow-ia-cli-0.9.0.tgz
+npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.1/devflow-ia-cli-0.9.1.tgz
 
 # Verificar
 dd-cli --version
-# → 0.9.0
+# → 0.9.1
 
 # Activar la statusline en Claude Code (una sola vez por máquina)
 dd-cli install
@@ -79,7 +79,7 @@ dd-cli install
 > Escribe `statusLine` en `~/.claude/settings.json` (global). Desde ese
 > momento, Claude Code muestra en su barra el estado de tu sesión en
 > cualquier proyecto. Si no estás en un proyecto DevFlow IA, solo muestra
-> `DevFlow IA · v0.9.0 ready`. Para desactivarla: `dd-cli uninstall`.
+> `DevFlow IA · v0.9.1 ready`. Para desactivarla: `dd-cli uninstall`.
 
 ### Setup del cliente (una vez por máquina por empresa)
 
@@ -120,7 +120,7 @@ DevFlow IA — init
 ✓ Creado .devflow/config.yml (identidad repo↔cliente)
 ✓ Creado .devflow/session.json inicial (schema_version: 2)
 ✓ Skills instaladas en ~/.claude/commands/devflow-ia
-  28 skills (v0.9.0)
+  28 skills (v0.9.1)
 ✓ Hooks configurados en .claude/settings.json
 ✓ CLAUDE.md generado con contexto del cliente embebido
 
@@ -881,7 +881,7 @@ persona.
 **¿Cómo sé qué versión de skills tengo instalada?**
 ```bash
 dd-cli health
-# Skills: 28 skills · v0.9.0
+# Skills: 28 skills · v0.9.1
 ```
 
 **¿Las HDUs viven en mi repo de código?**

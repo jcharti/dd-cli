@@ -561,7 +561,7 @@ En Claude Code:
 ### Paso 1 — Instalar el CLI (una vez por máquina, cada persona del equipo)
 
 ```bash
-npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.0/devflow-ia-cli-0.9.0.tgz
+npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.1/devflow-ia-cli-0.9.1.tgz
 dd-cli install        # activa la statusline en Claude Code
 # reiniciar Claude Code
 ```
@@ -646,7 +646,7 @@ Cuando un dev nuevo del equipo arranca:
 
 ```bash
 # 1. Instalar el CLI
-npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.0/devflow-ia-cli-0.9.0.tgz
+npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.1/devflow-ia-cli-0.9.1.tgz
 dd-cli install
 
 # 2. Setup local del cliente (token read-only propio, NO el del consultor)
@@ -751,7 +751,7 @@ Un dev nuevo en un equipo que ya usa DevFlow IA necesita:
 
 ```bash
 # 1. Instalar el CLI
-npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.0/devflow-ia-cli-0.9.0.tgz
+npm install -g https://github.com/Digital-DevCL/dd-cli/releases/download/v0.9.1/devflow-ia-cli-0.9.1.tgz
 dd-cli install
 ```
 
